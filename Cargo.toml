@@ -1,0 +1,8 @@
+[package]
+name = "hough-image"
+version = "0.1.0"
+authors = ["Max Beutel <me@maxbeutel.de>"]
+
+[dependencies]
+nalgebra = "0.10.1"
+image = "0.10.3"
