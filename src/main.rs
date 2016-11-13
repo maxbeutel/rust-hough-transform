@@ -84,7 +84,7 @@ fn init(
             //println!("n {} at {}/{}", n, x, y);
             let pixel = image::Rgb([n, n, n]);
 
-            out[(x, y)] = pixel;
+            out[(x, out_img_height - y - 1)] = pixel;
         }
     }
 
