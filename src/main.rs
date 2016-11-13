@@ -51,7 +51,7 @@ fn init(
 
                 // we found an edge, now go through all possible angles
                 for theta in (0..theta_axis_size).rev() {
-                    let theta_radians = theta as f64 * std::f64::consts::PI / theta_axis_size as f64;
+                    let theta_radians = theta as f64 * std::f64::consts::PI / theta_axis_size as f64; // deg * pi / 180
                     let sin = theta_radians.sin();
                     let cos = theta_radians.cos();
 
@@ -69,7 +69,7 @@ fn init(
 
     // now write output image based on accumulator
     let accu_clone = accumulator.clone().into_vector();
-    let max = *accu_clone.iter().max().unwrap(); // max what??
+    let max_accumualtor_value = *accu_clone.iter().max().unwrap();
 
     let out_img_width = accumulator.nrows() as u32;
     let out_img_height = accumulator.ncols() as u32; // this seems kind of wrong, cols are the height???
@@ -80,7 +80,7 @@ fn init(
 
     for y in 0..out_img_height {
         for x in 0..out_img_width {
-            let n = min(((accumulator[(x as usize, y as usize)] as f32) * 255.0 / (max as f32)).round() as u32, 255) as u8;
+            let n = min(((accumulator[(x as usize, y as usize)] as f32) * 255.0 / (max_accumualtor_value as f32)).round() as u32, 255) as u8;
             //println!("n {} at {}/{}", n, x, y);
             let pixel = image::Rgb([n, n, n]);
 
