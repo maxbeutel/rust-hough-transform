@@ -3,11 +3,14 @@
 extern crate nalgebra as na;
 extern crate image;
 
+use std::io::Write;
+use std::env;
+use std::process;
+use std::io;
 use std::f32;
 use std::fs::File;
 use std::path::Path;
-
-use na::{DMatrix, min};
+use std::str::FromStr;
 
 use image::{ImageBuffer, GenericImage, Pixel};
 
@@ -23,7 +26,7 @@ fn init(
     let img_width = img.dimensions().0;
     let img_height = img.dimensions().1;
 
-    let mut greyscale_data = DMatrix::from_element(img_width as usize, img_height as usize, 0);
+    let mut greyscale_data = na::DMatrix::new_zeros(img_width as usize, img_height as usize);
 
     // Flip y axis when reading image
     for y in 0..img_height {
@@ -40,7 +43,7 @@ fn init(
 
     let max_radius = ((img_width as f32).hypot(img_height as f32)).ceil();
     let r_axis_half = ((r_axis_size as f32) / 2.0).round();
-    let mut accumulator = DMatrix::from_element(theta_axis_size as usize, r_axis_size as usize, 0);
+    let mut accumulator: na::DMatrix<u32> = na::DMatrix::new_zeros(theta_axis_size as usize, r_axis_size as usize);
 
     for y in 0..img_height {
         for x in 0..img_width {
@@ -69,18 +72,20 @@ fn init(
 
     // now write output image based on accumulator
     let accu_clone = accumulator.clone().into_vector();
-    let max_accumualtor_value = *accu_clone.iter().max().unwrap();
+    let max_accumulator_value = *accu_clone.iter().max().unwrap();
+    println!("max accu value: {}", max_accumulator_value);
 
     let out_img_width = accumulator.nrows() as u32;
-    let out_img_height = accumulator.ncols() as u32; // this seems kind of wrong, cols are the height???
+    let out_img_height = accumulator.ncols() as u32;
 
     //println!("out buffered {}/{}", out_img_width, out_img_height);
 
+    // dump hough space as image
     let mut out = ImageBuffer::new(out_img_width, out_img_height);
 
     for y in 0..out_img_height {
         for x in 0..out_img_width {
-            let n = min(((accumulator[(x as usize, y as usize)] as f32) * 255.0 / (max_accumualtor_value as f32)).round() as u32, 255) as u8;
+            let n = na::min(((accumulator[(x as usize, y as usize)] as f32) * 255.0 / (max_accumulator_value as f32)).round() as u32, 255) as u8;
             //println!("n {} at {}/{}", n, x, y);
             let pixel = image::Rgb([n, n, n]);
 
@@ -127,12 +132,24 @@ fn is_edge(greyscale_data: &DMatrix<u8>, pixel_data: (u32, u32, u32), img_dimens
 }
 
 fn main() {
-    let input_path = "/Users/max/Desktop/hough5.png";
-    let output_path = "hough_space.png";
+    let args = env::args().skip(1).collect::<Vec<_>>();
+    println!("args: {:?}", args);
 
-    let theta_axis_size = 640;
-    let r_axis_size = 480;
-    let min_contrast = 64;
+    if args.len() < 4 {
+        writeln!(io::stderr(), "Usage: hough input_path output_path theta_axis_size r_axis_size [min_contrast]").unwrap();
+        process::exit(1);
+    }
 
-    init(input_path, output_path, min_contrast, theta_axis_size, r_axis_size);
+    let input_path = args[0].to_string();
+    let output_path = args[1].to_string();
+
+    let theta_axis_size = u32::from_str(&args[2]).expect("ERROR 'theta_axis_size' argument not a number.");
+    let r_axis_size = u32::from_str(&args[3]).expect("ERROR 'r_axis_size' argument not a number.");
+    let mut min_contrast = 64;
+
+    if args.len() > 4 {
+        min_contrast = u32::from_str(&args[4]).expect("ERROR 'min_contrast' argument not a number.");
+    }
+
+    init(&input_path, &output_path, min_contrast, theta_axis_size, r_axis_size);
 }
