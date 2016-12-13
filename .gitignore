@@ -45,4 +45,4 @@ flycheck_*.el
 
 # directory configuration
 .dir-locals.el
-/hough_space.png
+/*.png
