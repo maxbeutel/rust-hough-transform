@@ -12,19 +12,22 @@ use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 
-use image::{ImageBuffer, GenericImage, Pixel};
+use image::{ImageBuffer, Pixel};
 
-#[inline(always)]
 fn rgb_to_greyscale(r: u8, g: u8, b: u8) -> u8 {
     return ((r as f32 + g as f32 + b as f32) / 3.0).round() as u8;
 }
 
-// #[inline(always)]
 // fn deg2rad(axis_size: u32, deg: f64) -> f64 {
 //     // this is IMPORTANT: compute radians based on the theta axis size, which can be larger than 180 deg!
 //     let radians = deg as f64 * std::f64::consts::PI / axis_size as f64;
 //     return radians;
 // }
+
+fn calculate_max_line_length(img_width: u32, img_height: u32) -> f32 {
+    // @TODO does this code work for landscape and non-landscape images?
+    ((img_width as f32).hypot(img_height as f32)).ceil()
+}
 
 fn init(
     input_img_path: &str,
@@ -33,11 +36,10 @@ fn init(
     rho_axis_scale_factor: u32,
     houghspace_filter_threshold: u32
 ) {
-    let mut img = image::open(&Path::new(input_img_path)).unwrap();
+    let mut img = image::open(&Path::new(input_img_path)).unwrap().to_rgb();
     let (img_width, img_height) = img.dimensions();
 
-    // @FIXME this code doesn't work for landscape and non-landscape images!
-    let max_line_length = ((img_width as f32).hypot(img_height as f32)).ceil();
+    let max_line_length = calculate_max_line_length(img_width, img_height);  //((img_width as f32).hypot(img_height as f32)).ceil();
 
     // @FIXME when making this configurable, deg2rad function must be used
     // for angle calculations!
@@ -73,77 +75,18 @@ fn init(
         }
     }
 
-    // now write output image based on accumulator
-    let accu_clone = accumulator.clone().into_vector();
-    let max_accumulator_value = *accu_clone.iter().max().unwrap();
-    println!("max accu value: {}", max_accumulator_value);
+    // # now write output image based on accumulator
+    dump_houghspace(&accumulator, houghspace_img_path);
 
-    let out_img_width = accumulator.nrows() as u32;
-    let out_img_height = accumulator.ncols() as u32;
-
-    // dump hough space as image
-    let mut out = ImageBuffer::new(out_img_width, out_img_height);
-
-    for y in 0..out_img_height {
-        for x in 0..out_img_width {
-            let n = na::min(((accumulator[(x as usize, y as usize)] as f32) * 255.0 / (max_accumulator_value as f32)).round() as u32, 255) as u8;
-            let pixel = image::Rgb([n, n, n]);
-
-            out[(x, out_img_height - y - 1)] = pixel;
-        }
-    }
-
-    let ref mut fout = File::create(&Path::new(houghspace_img_path)).unwrap();
-    let _ = image::ImageRgb8(out).save(fout, image::PNG);
-
-    // filter hough space and dump lines
-    for theta in 0..theta_axis_size {
-        for rho_scaled in 0..rho_axis_size {
-            let val = accumulator[(theta as usize, rho_scaled as usize)];
-
-            if val < houghspace_filter_threshold {
-                continue;
-            }
-
-            // @TODO rename rho_original to rho
-            let rho_original = (rho_scaled as f64 - rho_axis_half as f64) * max_line_length as f64 / rho_axis_half as f64;
-            //println!("{} {} {}", theta, rho_scaled, rho_original);
-
-            let (p1_x, p1_y, p2_x, p2_y) = transform_lines(
-                theta as f64,
-                rho_original,
-                img_width,
-                img_height
-            );
-
-            //println!("(transform) {} {} {}/{} to {}/{}", theta, rho_original, p1_x.round(), p1_y.round(), p2_x.round(), p2_y.round());
-
-            let mut clipped_x1 = 0.0;
-            let mut clipped_y1 = 0.0;
-            let mut clipped_x2 = 0.0;
-            let mut clipped_y2 = 0.0;
-
-            liang_barsky(
-                0.0, img_width as f64 - 1.0, 0.0, img_height as f64 - 1.0,
-                p1_x, p1_y, p2_x, p2_y,
-                &mut clipped_x1, &mut clipped_y1, &mut clipped_x2, &mut clipped_y2
-            );
-
-            //println!("(clip) {}/{} to {}/{}", clipped_x1.round(), clipped_y1.round(), clipped_x2.round(), clipped_y2.round());
-
-            draw_line(
-                &mut img,
-                clipped_x1.round() as i32,
-                img_height as i32 - 1 - clipped_y1.round() as i32,
-                clipped_x2.round() as i32,
-                img_height as i32 - 1 - clipped_y2.round() as i32,
-                image::Rgba([255, 0, 0, 1])
-            );
-        }
-    }
-
-    let ref mut visualization_fout = File::create(&Path::new(line_visualization_img_path)).unwrap();
-    let _ = img.save(visualization_fout, image::PNG);
+    // # filter hough space and dump lines
+    dump_line_visualization(
+        &mut img,
+        &accumulator,
+        theta_axis_size,
+        rho_axis_size,
+        houghspace_filter_threshold,
+        line_visualization_img_path
+    );
 }
 
 fn transform_lines(
@@ -225,12 +168,12 @@ fn main() {
     }
 
     // TODO:
-    // argument parsing
-    // improving edge detection
-    // make computation of max. line length work for landscape and non-landscape
-    // make more functional, split init()
-    // allow configuration of theta_axis_size? for improved accuracy?
-    // unit tests, especially for transform lines
+    // [X] argument parsing
+    // [ ] improving edge detection
+    // [ ] make computation of max. line length work for landscape and non-landscape
+    // [ ] make more functional, split init()
+    // [ ] allow configuration of theta_axis_size? for improved accuracy?
+    // [ ] unit tests, especially for transform lines
 
     let input_img_path = args[0].to_string();
     let houghspace_img_path = args[1].to_string();
@@ -302,7 +245,7 @@ fn liang_barsky (
 }
 
 // Based on http://stackoverflow.com/questions/34440429/draw-a-line-in-a-bitmap-possibly-with-piston
-fn draw_line<T: GenericImage>(img: &mut T, x0: i32, y0: i32, x1: i32, y1: i32, pixel: T::Pixel) {
+fn draw_line(img: &mut image::RgbImage, x0: i32, y0: i32, x1: i32, y1: i32) {
     // Create local variables for moving start point
     let mut x0 = x0;
     let mut y0 = y0;
@@ -321,7 +264,7 @@ fn draw_line<T: GenericImage>(img: &mut T, x0: i32, y0: i32, x1: i32, y1: i32, p
 
     loop {
         // Set pixel
-        img.put_pixel(x0 as u32, y0 as u32, pixel);
+        img.put_pixel(x0 as u32, y0 as u32, image::Rgb([255, 0, 0]));
 
         // Check end condition
         if x0 == x1 && y0 == y1 { break };
@@ -333,4 +276,90 @@ fn draw_line<T: GenericImage>(img: &mut T, x0: i32, y0: i32, x1: i32, y1: i32, p
         if err2 > -dx { err -= dy; x0 += sx; }
         if err2 < dy { err += dx; y0 += sy; }
     }
+}
+
+// --
+fn dump_houghspace(accumulator: &na::DMatrix<u32>, houghspace_img_path: &str)
+{
+    let accu_clone = accumulator.clone().into_vector();
+    let max_accumulator_value = *accu_clone.iter().max().unwrap();
+    println!("max accu value: {}", max_accumulator_value);
+
+    let out_img_width = accumulator.nrows() as u32;
+    let out_img_height = accumulator.ncols() as u32;
+
+    let mut out = ImageBuffer::new(out_img_width, out_img_height);
+
+    for y in 0..out_img_height {
+        for x in 0..out_img_width {
+            let n = na::min(((accumulator[(x as usize, y as usize)] as f32) * 255.0 / (max_accumulator_value as f32)).round() as u32, 255) as u8;
+            let pixel = image::Rgb([n, n, n]);
+
+            out[(x, out_img_height - y - 1)] = pixel;
+        }
+    }
+
+    let ref mut fout = File::create(&Path::new(houghspace_img_path)).unwrap();
+    let _ = image::ImageRgb8(out).save(fout, image::PNG);
+}
+
+fn dump_line_visualization(
+    mut img: &mut image::RgbImage,
+    accumulator: &na::DMatrix<u32>,
+    theta_axis_size: u32,
+    rho_axis_size: u32,
+    houghspace_filter_threshold: u32,
+    line_visualization_img_path: &str
+) {
+    let (img_width, img_height) = img.dimensions();
+
+    let rho_axis_half = ((rho_axis_size as f32) / 2.0).round();
+    let max_line_length = calculate_max_line_length(img_width, img_height);  //((img_width as f32).hypot(img_height as f32)).ceil();
+
+    for theta in 0..theta_axis_size {
+        for rho_scaled in 0..rho_axis_size {
+            let val = accumulator[(theta as usize, rho_scaled as usize)];
+
+            if val < houghspace_filter_threshold {
+                continue;
+            }
+
+            // @TODO rename rho_original to rho
+            let rho_original = (rho_scaled as f64 - rho_axis_half as f64) * max_line_length as f64 / rho_axis_half as f64;
+            //println!("{} {} {}", theta, rho_scaled, rho_original);
+
+            let (p1_x, p1_y, p2_x, p2_y) = transform_lines(
+                theta as f64,
+                rho_original,
+                img_width,
+                img_height
+            );
+
+            //println!("(transform) {} {} {}/{} to {}/{}", theta, rho_original, p1_x.round(), p1_y.round(), p2_x.round(), p2_y.round());
+
+            let mut clipped_x1 = 0.0;
+            let mut clipped_y1 = 0.0;
+            let mut clipped_x2 = 0.0;
+            let mut clipped_y2 = 0.0;
+
+            liang_barsky(
+                0.0, img_width as f64 - 1.0, 0.0, img_height as f64 - 1.0,
+                p1_x, p1_y, p2_x, p2_y,
+                &mut clipped_x1, &mut clipped_y1, &mut clipped_x2, &mut clipped_y2
+            );
+
+            //println!("(clip) {}/{} to {}/{}", clipped_x1.round(), clipped_y1.round(), clipped_x2.round(), clipped_y2.round());
+
+            draw_line(
+                &mut img,
+                clipped_x1.round() as i32,
+                img_height as i32 - 1 - clipped_y1.round() as i32,
+                clipped_x2.round() as i32,
+                img_height as i32 - 1 - clipped_y2.round() as i32
+            );
+        }
+    }
+
+    //let ref mut visualization_fout = File::create(&Path::new(line_visualization_img_path)).unwrap();
+    let _ = img.save(&Path::new(line_visualization_img_path));
 }
