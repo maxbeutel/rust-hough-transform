@@ -18,11 +18,12 @@ fn rgb_to_greyscale(r: u8, g: u8, b: u8) -> u8 {
     return ((r as f32 + g as f32 + b as f32) / 3.0).round() as u8;
 }
 
-// fn deg2rad(axis_size: u32, deg: f64) -> f64 {
-//     // this is IMPORTANT: compute radians based on the theta axis size, which can be larger than 180 deg!
-//     let radians = deg as f64 * std::f64::consts::PI / axis_size as f64;
-//     return radians;
-// }
+fn deg2rad(deg: f64) -> f64 {
+    deg.to_radians()
+    // this is IMPORTANT://  compute radians based on the theta axis size, which can be larger than 180 deg!
+    // let radians = deg as f64 * std::f64::consts::PI / axis_size as f64;
+    // return radians;
+}
 
 fn calculate_max_line_length(img_width: u32, img_height: u32) -> f32 {
     // @TODO does this code work for landscape and non-landscape images?
@@ -139,8 +140,8 @@ fn hough_transform(img: &image::RgbImage, rho_axis_scale_factor: u32) -> na::DMa
 
             if is_edge(&img, x, y) {
                 for theta in 1..theta_axis_size {
-                    let sin = (theta as f64).to_radians().sin();//   deg2rad(theta_axis_size, theta as f64).sin();
-                    let cos = (theta as f64).to_radians().cos();// deg2rad(theta_axis_size, theta as f64).cos();
+                    let sin = deg2rad(theta as f64).sin();
+                    let cos = deg2rad(theta as f64).cos();
 
                     let rho = (x as f64) * cos + (y_inverted as f64) * sin;
                     let rho_scaled = ((rho * rho_axis_half as f64 / max_line_length as f64).round() + rho_axis_half as f64) as u32;
@@ -190,22 +191,20 @@ fn transform_lines(
 
         // start
         p1_x = 0.0;
-        p1_y = rho.abs() / theta.to_radians().sin();//deg2rad(theta_axis_size, theta).sin();
+        p1_y = rho.abs() / deg2rad(theta).sin();
 
         // end
-        p2_x = rho.abs() / theta_remaining.to_radians().sin();//deg2rad(theta_axis_size, theta_remaining).sin();
+        p2_x = rho.abs() / deg2rad(theta_remaining).sin();
         p2_y = 0.0;
-
-        //println!("{} {} {} {} {}/{} {}/{}", theta, theta_reverse, theta_remaining, rho, p1_x, p1_y, p2_x, p2_y);
     } else if theta > 90.0 && theta < 180.0 {
         let theta_reverse = theta - 90.0;
         let theta_remaining = 90.0 - theta_reverse;
 
         // start
         if rho < 0.0 {
-            p1_x = rho.abs() / theta_reverse.to_radians().sin();//deg2rad(theta_axis_size, theta_reverse).sin();
+            p1_x = rho.abs() / deg2rad(theta_reverse).sin();
         } else {
-            p1_x = rho.abs() * -1.0 / theta_reverse.to_radians().sin();//deg2rad(theta_axis_size, theta_reverse).sin();
+            p1_x = rho.abs() * -1.0 / deg2rad(theta_reverse).sin();
         }
 
         p1_y = 0.0;
@@ -214,9 +213,9 @@ fn transform_lines(
         p2_x = img_width as f64;
 
         if rho < 0.0 {
-            p2_y = (img_width as f64 - p1_x.abs()) * theta_reverse.to_radians().sin() / (theta_remaining as f64).to_radians().sin();
+            p2_y = (img_width as f64 - p1_x.abs()) * deg2rad(theta_reverse).sin() / deg2rad(theta_remaining as f64).sin();
         } else {
-            p2_y = (img_width as f64 + p1_x.abs()) * theta_reverse.to_radians().sin() / (theta_remaining as f64).to_radians().sin();
+            p2_y = (img_width as f64 + p1_x.abs()) * deg2rad(theta_reverse).sin() / deg2rad(theta_remaining as f64).sin();
         }
     }
 
