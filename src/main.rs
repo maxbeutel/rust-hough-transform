@@ -26,7 +26,6 @@ fn deg2rad(deg: f64) -> f64 {
 }
 
 fn calculate_max_line_length(img_width: u32, img_height: u32) -> f32 {
-    // @TODO does this code work for landscape and non-landscape images?
     ((img_width as f32).hypot(img_height as f32)).ceil()
 }
 
@@ -60,7 +59,7 @@ fn dump_houghspace(accumulator: &na::DMatrix<u32>, houghspace_img_path: &str) {
 }
 
 fn dump_line_visualization(
-    mut img: &mut image::RgbImage,
+    mut img: &mut image::RgbImage, // @TODO maybe pass in img dimensions from outside, easier to test
     accumulator: &na::DMatrix<u32>,
     houghspace_filter_threshold: u32,
     line_visualization_img_path: &str
@@ -70,37 +69,37 @@ fn dump_line_visualization(
     let theta_axis_size = accumulator.nrows();
     let rho_axis_size = accumulator.ncols();
     let rho_axis_half = ((rho_axis_size as f32) / 2.0).round();
-    let max_line_length = calculate_max_line_length(img_width, img_height);  //((img_width as f32).hypot(img_height as f32)).ceil();
+    let max_line_length = calculate_max_line_length(img_width, img_height);
 
     for theta in 0..theta_axis_size {
         for rho_scaled in 0..rho_axis_size {
             let val = accumulator[(theta as usize, rho_scaled as usize)];
 
+            // @TODO use accumulator.as_vector().filter() here?
             if val < houghspace_filter_threshold {
                 continue;
             }
 
-            // @TODO rename rho_original to rho
-            let rho_original = (rho_scaled as f64 - rho_axis_half as f64) * max_line_length as f64 / rho_axis_half as f64;
-            //println!("{} {} {}", theta, rho_scaled, rho_original);
+            let rho = (rho_scaled as f64 - rho_axis_half as f64) * max_line_length as f64 / rho_axis_half as f64;
+            //println!("{} {} {}", theta, rho_scaled, rho);
 
-            let (p1_x, p1_y, p2_x, p2_y) = transform_lines(
-                theta as f64,
-                rho_original,
+            let (p1_x, p1_y, p2_x, p2_y) = line_from_rho_theta(
+                theta as u32,
+                rho,
                 img_width,
                 img_height
             );
 
-            //println!("(transform) {} {} {}/{} to {}/{}", theta, rho_original, p1_x.round(), p1_y.round(), p2_x.round(), p2_y.round());
+            //println!("(transform) {} {} {}/{} to {}/{}", theta, rho, p1_x.round(), p1_y.round(), p2_x.round(), p2_y.round());
 
             let mut clipped_x1 = 0.0;
             let mut clipped_y1 = 0.0;
             let mut clipped_x2 = 0.0;
             let mut clipped_y2 = 0.0;
 
-            liang_barsky(
+            clip_line_liang_barsky(
                 0.0, img_width as f64 - 1.0, 0.0, img_height as f64 - 1.0,
-                p1_x, p1_y, p2_x, p2_y,
+                p1_x as f64, p1_y as f64, p2_x as f64, p2_y as f64,
                 &mut clipped_x1, &mut clipped_y1, &mut clipped_x2, &mut clipped_y2
             );
 
@@ -116,7 +115,6 @@ fn dump_line_visualization(
         }
     }
 
-    //let ref mut visualization_fout = File::create(&Path::new(line_visualization_img_path)).unwrap();
     let _ = img.save(&Path::new(line_visualization_img_path));
 }
 
@@ -140,10 +138,7 @@ fn hough_transform(img: &image::RgbImage, rho_axis_scale_factor: u32) -> na::DMa
 
             if is_edge(&img, x, y) {
                 for theta in 1..theta_axis_size {
-                    let sin = deg2rad(theta as f64).sin();
-                    let cos = deg2rad(theta as f64).cos();
-
-                    let rho = (x as f64) * cos + (y_inverted as f64) * sin;
+                    let rho = calculate_rho(theta as f64, x, y_inverted);
                     let rho_scaled = ((rho * rho_axis_half as f64 / max_line_length as f64).round() + rho_axis_half as f64) as u32;
 
                     accumulator[(theta as usize, rho_scaled as usize)] += 1;
@@ -155,40 +150,54 @@ fn hough_transform(img: &image::RgbImage, rho_axis_scale_factor: u32) -> na::DMa
     accumulator
 }
 
-fn transform_lines(
-    theta: f64,
+fn calculate_rho(theta: f64, x: u32, y: u32) -> f64 {
+    let sin = deg2rad(theta as f64).sin();
+    let cos = deg2rad(theta as f64).cos();
+
+    (x as f64) * cos + (y as f64) * sin
+}
+
+#[test]
+fn test_calculate_rho() {
+    assert_eq!(50.0, calculate_rho(0.0, 50, 40));
+    assert_eq!(64.0, calculate_rho(45.0, 50, 40).round());
+    assert_eq!(40.0, calculate_rho(90.0, 50, 40));
+    assert_eq!(-50.0, calculate_rho(180.0, 50, 40).round());
+    assert_eq!(-40.0, calculate_rho(270.0, 50, 40).round());
+    assert_eq!(-7.0, calculate_rho(135.0, 50, 40).round());
+}
+
+fn line_from_rho_theta(
+    theta: u32,
     rho: f64,
     img_width: u32,
     img_height: u32
-) -> (f64, f64, f64, f64) {
+) -> (u32, u32, u32, u32) {
     let mut p1_x = 0.0 as f64;
     let mut p1_y = 0.0 as f64;
 
     let mut p2_x = 0.0 as f64;
     let mut p2_y = 0.0 as f64;
 
-    // @FIXME theta_reverse is a really stupid name
-    // @FIXME move computation of theta_reverse/theta remaining to beginning of the function
+    let theta = if theta > 180 { theta as f64 - 180.0 } else { theta as f64 }; // @FIXME this must be changed if we allow a different theta_axis_size
 
-    let theta = if theta > 180.0 { theta - 180.0 } else { theta };
+    let theta_reverse = theta % 90.0;
+    let theta_remaining = 90.0 - theta_reverse;
 
     // special cases
     if theta == 0.0 || theta == 180.0 {
-        p1_x = rho.abs(); // not tested
+        p1_x = rho.abs();
         p1_y = img_height as f64;
 
-        p2_x = rho.abs(); // not tested
+        p2_x = rho.abs();
         p2_y = 0.0;
     } else if theta == 90.0 {
         p1_x = 0.0;
-        p1_y = rho.abs(); // not tested
+        p1_y = rho.abs();
 
         p2_x = img_width as f64;
-        p2_y = rho.abs(); // not tested
+        p2_y = rho.abs();
     } else if theta > 0.0 && theta < 90.0  {
-        let theta_reverse = theta;
-        let theta_remaining = 90.0 - theta_reverse;
-
         // start
         p1_x = 0.0;
         p1_y = rho.abs() / deg2rad(theta).sin();
@@ -197,9 +206,6 @@ fn transform_lines(
         p2_x = rho.abs() / deg2rad(theta_remaining).sin();
         p2_y = 0.0;
     } else if theta > 90.0 && theta < 180.0 {
-        let theta_reverse = theta - 90.0;
-        let theta_remaining = 90.0 - theta_reverse;
-
         // start
         if rho < 0.0 {
             p1_x = rho.abs() / deg2rad(theta_reverse).sin();
@@ -219,7 +225,55 @@ fn transform_lines(
         }
     }
 
-    (p1_x, p1_y, p2_x, p2_y)
+    (p1_x.round() as u32, p1_y.round() as u32, p2_x.round() as u32, p2_y.round() as u32)
+}
+
+#[test]
+fn test_line_from_rho_theta_special_cases() {
+    let img_width = 100;
+    let img_height = 90;
+
+    let x = 50;
+    let y = 40;
+
+    let line_coordinates_0deg = line_from_rho_theta(0, calculate_rho(0.0, x, y), img_width, img_height);
+    assert_eq!((50, 90, 50, 0), line_coordinates_0deg);
+
+    let line_coordinates_30deg = line_from_rho_theta(30, calculate_rho(30.0, x, y), img_width, img_height);
+    assert_eq!((0, 127, 73, 0), line_coordinates_30deg);
+
+    let line_coordinates_45deg = line_from_rho_theta(45, calculate_rho(45.0, x, y), img_width, img_height);
+    assert_eq!((0, 90, 90, 0), line_coordinates_45deg);
+
+    let line_coordinates_90deg = line_from_rho_theta(90, calculate_rho(90.0, x, y), img_width, img_height);
+    assert_eq!((0, 40, 100, 40), line_coordinates_90deg);
+
+    let line_coordinates_120deg = line_from_rho_theta(120, calculate_rho(120.0, x, y), img_width, img_height);
+    assert_eq!((4294967277, 0, 100, 69), line_coordinates_120deg); // @FIXME
+
+    let line_coordinates_135deg = line_from_rho_theta(135, calculate_rho(135.0, x, y), img_width, img_height);
+    assert_eq!((10, 0, 100, 90), line_coordinates_135deg);
+
+    let line_coordinates_180deg = line_from_rho_theta(180, calculate_rho(180.0, x, y), img_width, img_height);
+    assert_eq!((50, 90, 50, 0), line_coordinates_180deg);
+
+    let line_coordinates_210deg = line_from_rho_theta(210, calculate_rho(210.0, x, y), img_width, img_height);
+    assert_eq!((0, 127, 73, 0), line_coordinates_210deg);
+
+    let line_coordinates_225deg = line_from_rho_theta(225, calculate_rho(225.0, x, y), img_width, img_height);
+    assert_eq!((0, 90, 90, 0), line_coordinates_225deg);
+
+    let line_coordinates_270deg = line_from_rho_theta(270, calculate_rho(270.0, x, y), img_width, img_height);
+    assert_eq!((0, 40, 100, 40), line_coordinates_270deg);
+
+    let line_coordinates_300deg = line_from_rho_theta(300, calculate_rho(300.0, x, y), img_width, img_height);
+    assert_eq!((19, 0, 100, 47), line_coordinates_300deg);
+
+    let line_coordinates_315deg = line_from_rho_theta(315, calculate_rho(315.0, x, y), img_width, img_height);
+    assert_eq!((4294967286, 0, 100, 110), line_coordinates_315deg); // @FIXME that seems kind of wrong (max uint)
+
+    let line_coordinates_360deg = line_from_rho_theta(360, calculate_rho(360.0, x, y), img_width, img_height);
+    assert_eq!((50, 90, 50, 0), line_coordinates_360deg);
 }
 
 fn main() {
@@ -234,10 +288,12 @@ fn main() {
     // TODO:
     // [X] argument parsing
     // [ ] improving edge detection
-    // [ ] make computation of max. line length work for landscape and non-landscape
+    // [X] make computation of max. line length work for landscape and non-landscape
     // [ ] make more functional, split init()
-    // [ ] allow configuration of theta_axis_size? for improved accuracy?
-    // [ ] unit tests, especially for transform lines
+    // [ ] allow configuration of theta_axis_size? for improved accuracy? (need to fix line_from... function)
+    // [ ] more unit tests
+    // [ ] fix int overflow in line_from... function
+    // [ ] use f32 and only when needed
 
     let input_img_path = args[0].to_string();
     let houghspace_img_path = args[1].to_string();
@@ -257,7 +313,7 @@ fn main() {
 
 // Liang-Barsky function by Daniel White @ http://www.skytopia.com/project/articles/compsci/clipping.html
 #[allow(unused_assignments)]
-fn liang_barsky (
+fn clip_line_liang_barsky(
     edge_left: f64, edge_right: f64, edge_bottom: f64, edge_top: f64,   // Define the x/y clipping values for the border.
     x0src: f64, y0src: f64, x1src: f64, y1src: f64,                 // Define the start and end points of the line.
     x0clip: &mut f64, y0clip: &mut f64, x1clip: &mut f64, y1clip: &mut f64 // The output values, so declare these outside.
