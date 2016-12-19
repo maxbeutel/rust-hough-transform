@@ -59,7 +59,7 @@ fn dump_houghspace(accumulator: &na::DMatrix<u32>, houghspace_img_path: &str) {
 }
 
 fn dump_line_visualization(
-    mut img: &mut image::RgbImage, // @TODO maybe pass in img dimensions from outside, easier to test
+    mut img: &mut image::RgbImage,
     accumulator: &na::DMatrix<u32>,
     houghspace_filter_threshold: u32,
     line_visualization_img_path: &str
@@ -80,31 +80,27 @@ fn dump_line_visualization(
             }
 
             let rho = (rho_scaled as f64 - rho_axis_half as f64) * max_line_length as f64 / rho_axis_half as f64;
-            //println!("{} {} {}", theta, rho_scaled, rho);
 
-            let (p1_x, p1_y, p2_x, p2_y) = line_from_rho_theta(
+            let line_coordinates = line_from_rho_theta(
                 theta as u32,
                 rho,
                 img_width,
                 img_height
             );
 
-            //println!("(transform) {} {} {}/{} to {}/{}", theta, rho, p1_x.round(), p1_y.round(), p2_x.round(), p2_y.round());
-
-            let clipped = clip_line_liang_barsky(
-                0, (img_width - 1) as i32, 0, (img_height - 1) as i32,
-                p1_x, p1_y, p2_x, p2_y
+            let clipped_line_coordinates = clip_line_liang_barsky(
+                (0, (img_width - 1) as i32, 0, (img_height - 1) as i32),
+                line_coordinates
             ).expect("Line from rho/theta should be inside visible area of image.");
 
-            //println!("(clip) {}/{} to {}/{}", clipped_x1.round(), clipped_y1.round(), clipped_x2.round(), clipped_y2.round());
-
-            draw_line(
-                &mut img,
-                clipped.0,
-                (img_height as i32) - 1 - clipped.1,
-                clipped.2,
-                (img_height as i32) - 1 - clipped.3
+            let img_line_coordinates = (
+                clipped_line_coordinates.0,
+                (img_height as i32) - clipped_line_coordinates.1, // @FIXME do we need the -1 here?
+                clipped_line_coordinates.2,
+                (img_height as i32) - clipped_line_coordinates.3 // @FIXME do we need the -1 here?
             );
+
+            draw_line(&mut img, img_line_coordinates);
         }
     }
 
@@ -172,7 +168,8 @@ fn line_from_rho_theta(
     let mut p2_x = 0.0 as f64;
     let mut p2_y = 0.0 as f64;
 
-    let theta = if theta > 180 { theta as f64 - 180.0 } else { theta as f64 }; // @FIXME this must be changed if we allow a different theta_axis_size
+    // @FIXME this must be changed if we allow a different theta_axis_size
+    let theta = if theta > 180 { theta as f64 - 180.0 } else { theta as f64 };
 
     let theta_reverse = theta % 90.0;
     let theta_remaining = 90.0 - theta_reverse;
@@ -295,7 +292,7 @@ fn main() {
     let rho_axis_scale_factor = u32::from_str(&args[3]).expect("ERROR 'rho_axis_scale_factor' argument not a number.");
     let houghspace_filter_threshold = u32::from_str(&args[4]).expect("ERROR 'houghspace_filter_threshold' argument not a number.");
 
-    let mut img = image::open(&Path::new(&input_img_path)).unwrap().to_rgb();
+    let mut img = image::open(&Path::new(&input_img_path)).expect("ERROR: input file not found.").to_rgb();
     let accumulator = hough_transform(&img, rho_axis_scale_factor);
 
     dump_houghspace(&accumulator, &houghspace_img_path);
@@ -307,10 +304,14 @@ fn main() {
 // Liang-Barsky function by Daniel White @ http://www.skytopia.com/project/articles/compsci/clipping.html
 #[allow(unused_assignments)]
 fn clip_line_liang_barsky(
-    edge_left: i32, edge_right: i32, edge_bottom: i32, edge_top: i32,   // Define the x/y clipping values for the border.
-    x0src: i32, y0src: i32, x1src: i32, y1src: i32
+    clipping_area: (i32, i32, i32, i32), // Define the x/y clipping values for the border.
+    line_coordinates: (i32, i32, i32, i32)
 ) -> Option<(i32, i32, i32, i32)> {
-    let mut t0: f32 = 0.0; let mut t1: f32 = 1.0;
+    let (edge_left, edge_right, edge_bottom, edge_top) = clipping_area;
+    let (x0src, y0src, x1src, y1src) = line_coordinates;
+
+    let mut t0: f32 = 0.0;
+    let mut t1: f32 = 1.0;
 
     let xdelta = (x1src as f32) - (x0src as f32);
     let ydelta = (y1src as f32) - (y0src as f32);
@@ -369,8 +370,8 @@ fn test_clip_line_liang_barsky() {
     let p2 = (220, 400);
 
     let clipped = clip_line_liang_barsky(
-        0, img_width, 0, img_height,
-        p1.0, p1.1, p2.0, p2.1
+        (0, img_width, 0, img_height),
+        (p1.0, p1.1, p2.0, p2.1)
     ).unwrap();
 
     assert_eq!((0, 138, 136, 300), clipped);
@@ -380,8 +381,8 @@ fn test_clip_line_liang_barsky() {
     let p2 = (0, 390);
 
     let clipped = clip_line_liang_barsky(
-        0, img_width, 0, img_height,
-        p1.0, p1.1, p2.0, p2.1
+        (0, img_width, 0, img_height),
+        (p1.0, p1.1, p2.0, p2.1)
     ).unwrap();
 
     assert_eq!((198, 0, 46, 300), clipped);
@@ -391,8 +392,8 @@ fn test_clip_line_liang_barsky() {
     let p2 = (400, -150);
 
     let clipped = clip_line_liang_barsky(
-        0, img_width, 0, img_height,
-        p1.0, p1.1, p2.0, p2.1
+        (0, img_width, 0, img_height),
+        (p1.0, p1.1, p2.0, p2.1)
     ).unwrap();
 
     assert_eq!((400, 300, 400, 0), clipped);
@@ -402,8 +403,8 @@ fn test_clip_line_liang_barsky() {
     let p2 = (250, 190);
 
     let clipped = clip_line_liang_barsky(
-        0, img_width, 0, img_height,
-        p1.0, p1.1, p2.0, p2.1
+        (0, img_width, 0, img_height),
+        (p1.0, p1.1, p2.0, p2.1)
     ).unwrap();
 
     assert_eq!((200, 100, 250, 190), clipped);
@@ -413,15 +414,17 @@ fn test_clip_line_liang_barsky() {
     let p2 = (-250, -190);
 
     let clipped = clip_line_liang_barsky(
-        0, img_width, 0, img_height,
-        p1.0, p1.1, p2.0, p2.1
+        (0, img_width, 0, img_height),
+        (p1.0, p1.1, p2.0, p2.1)
     );
 
     assert_eq!(None, clipped);
 }
 
 // Based on http://stackoverflow.com/questions/34440429/draw-a-line-in-a-bitmap-possibly-with-piston
-fn draw_line(img: &mut image::RgbImage, x0: i32, y0: i32, x1: i32, y1: i32) {
+fn draw_line(img: &mut image::RgbImage, line_coordinates: (i32, i32, i32, i32)) {
+    let (x0, y0, x1, y1) = line_coordinates;
+
     // Create local variables for moving start point
     let mut x0 = x0;
     let mut y0 = y0;
