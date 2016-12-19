@@ -172,7 +172,7 @@ fn line_from_rho_theta(
     rho: f64,
     img_width: u32,
     img_height: u32
-) -> (u32, u32, u32, u32) {
+) -> (i32, i32, i32, i32) {
     let mut p1_x = 0.0 as f64;
     let mut p1_y = 0.0 as f64;
 
@@ -225,7 +225,7 @@ fn line_from_rho_theta(
         }
     }
 
-    (p1_x.round() as u32, p1_y.round() as u32, p2_x.round() as u32, p2_y.round() as u32)
+    (p1_x.round() as i32, p1_y.round() as i32, p2_x.round() as i32, p2_y.round() as i32)
 }
 
 #[test]
@@ -249,7 +249,7 @@ fn test_line_from_rho_theta_special_cases() {
     assert_eq!((0, 40, 100, 40), line_coordinates_90deg);
 
     let line_coordinates_120deg = line_from_rho_theta(120, calculate_rho(120.0, x, y), img_width, img_height);
-    assert_eq!((4294967277, 0, 100, 69), line_coordinates_120deg); // @FIXME
+    assert_eq!((-19, 0, 100, 69), line_coordinates_120deg);
 
     let line_coordinates_135deg = line_from_rho_theta(135, calculate_rho(135.0, x, y), img_width, img_height);
     assert_eq!((10, 0, 100, 90), line_coordinates_135deg);
@@ -270,7 +270,7 @@ fn test_line_from_rho_theta_special_cases() {
     assert_eq!((19, 0, 100, 47), line_coordinates_300deg);
 
     let line_coordinates_315deg = line_from_rho_theta(315, calculate_rho(315.0, x, y), img_width, img_height);
-    assert_eq!((4294967286, 0, 100, 110), line_coordinates_315deg); // @FIXME that seems kind of wrong (max uint)
+    assert_eq!((-10, 0, 100, 110), line_coordinates_315deg);
 
     let line_coordinates_360deg = line_from_rho_theta(360, calculate_rho(360.0, x, y), img_width, img_height);
     assert_eq!((50, 90, 50, 0), line_coordinates_360deg);
