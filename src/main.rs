@@ -18,10 +18,10 @@ fn rgb_to_greyscale(r: u8, g: u8, b: u8) -> u8 {
     return ((r as f32 + g as f32 + b as f32) / 3.0).round() as u8;
 }
 
-fn deg2rad(deg: f64) -> f64 {
+fn deg2rad(deg: f32) -> f32 {
     deg.to_radians()
     // this is IMPORTANT://  compute radians based on the theta axis size, which can be larger than 180 deg!
-    // let radians = deg as f64 * std::f64::consts::PI / axis_size as f64;
+    // let radians = deg as f32 * std::f32::consts::PI / axis_size as f32;
     // return radians;
 }
 
@@ -79,7 +79,7 @@ fn dump_line_visualization(
                 continue;
             }
 
-            let rho = (rho_scaled as f64 - rho_axis_half as f64) * max_line_length as f64 / rho_axis_half as f64;
+            let rho = (rho_scaled as f32 - rho_axis_half) * max_line_length / rho_axis_half;
 
             let line_coordinates = line_from_rho_theta(
                 theta as u32,
@@ -127,8 +127,8 @@ fn hough_transform(img: &image::RgbImage, rho_axis_scale_factor: u32) -> na::DMa
 
             if is_edge(&img, x, y) {
                 for theta in 1..theta_axis_size {
-                    let rho = calculate_rho(theta as f64, x, y_inverted);
-                    let rho_scaled = ((rho * rho_axis_half as f64 / max_line_length as f64).round() + rho_axis_half as f64) as u32;
+                    let rho = calculate_rho(theta as f32, x, y_inverted);
+                    let rho_scaled = ((rho * rho_axis_half as f32 / max_line_length as f32).round() + rho_axis_half as f32) as u32;
 
                     accumulator[(theta as usize, rho_scaled as usize)] += 1;
                 }
@@ -139,11 +139,11 @@ fn hough_transform(img: &image::RgbImage, rho_axis_scale_factor: u32) -> na::DMa
     accumulator
 }
 
-fn calculate_rho(theta: f64, x: u32, y: u32) -> f64 {
-    let sin = deg2rad(theta as f64).sin();
-    let cos = deg2rad(theta as f64).cos();
+fn calculate_rho(theta: f32, x: u32, y: u32) -> f32 {
+    let sin = deg2rad(theta as f32).sin();
+    let cos = deg2rad(theta as f32).cos();
 
-    (x as f64) * cos + (y as f64) * sin
+    (x as f32) * cos + (y as f32) * sin
 }
 
 #[test]
@@ -158,18 +158,18 @@ fn test_calculate_rho() {
 
 fn line_from_rho_theta(
     theta: u32,
-    rho: f64,
+    rho: f32,
     img_width: u32,
     img_height: u32
 ) -> (i32, i32, i32, i32) {
-    let mut p1_x = 0.0 as f64;
-    let mut p1_y = 0.0 as f64;
+    let mut p1_x = 0.0 as f32;
+    let mut p1_y = 0.0 as f32;
 
-    let mut p2_x = 0.0 as f64;
-    let mut p2_y = 0.0 as f64;
+    let mut p2_x = 0.0 as f32;
+    let mut p2_y = 0.0 as f32;
 
     // @FIXME this must be changed if we allow a different theta_axis_size
-    let theta = if theta > 180 { theta as f64 - 180.0 } else { theta as f64 };
+    let theta = if theta > 180 { theta as f32 - 180.0 } else { theta as f32 };
 
     let theta_reverse = theta % 90.0;
     let theta_remaining = 90.0 - theta_reverse;
@@ -177,7 +177,7 @@ fn line_from_rho_theta(
     // special cases
     if theta == 0.0 || theta == 180.0 {
         p1_x = rho.abs();
-        p1_y = img_height as f64;
+        p1_y = img_height as f32;
 
         p2_x = rho.abs();
         p2_y = 0.0;
@@ -185,7 +185,7 @@ fn line_from_rho_theta(
         p1_x = 0.0;
         p1_y = rho.abs();
 
-        p2_x = img_width as f64;
+        p2_x = img_width as f32;
         p2_y = rho.abs();
     } else if theta > 0.0 && theta < 90.0  {
         // start
@@ -206,12 +206,12 @@ fn line_from_rho_theta(
         p1_y = 0.0;
 
         // end
-        p2_x = img_width as f64;
+        p2_x = img_width as f32;
 
         if rho < 0.0 {
-            p2_y = (img_width as f64 - p1_x.abs()) * deg2rad(theta_reverse).sin() / deg2rad(theta_remaining as f64).sin();
+            p2_y = (img_width as f32 - p1_x.abs()) * deg2rad(theta_reverse).sin() / deg2rad(theta_remaining as f32).sin();
         } else {
-            p2_y = (img_width as f64 + p1_x.abs()) * deg2rad(theta_reverse).sin() / deg2rad(theta_remaining as f64).sin();
+            p2_y = (img_width as f32 + p1_x.abs()) * deg2rad(theta_reverse).sin() / deg2rad(theta_remaining as f32).sin();
         }
     }
 
@@ -283,7 +283,7 @@ fn main() {
     // [ ] allow configuration of theta_axis_size? for improved accuracy? (need to fix line_from... function)
     // [X] more unit tests
     // [X] fix int overflow in line_from... function
-    // [ ] use f32 and only when needed
+    // [X] use f32 and only when needed
 
     let input_img_path = args[0].to_string();
     let houghspace_img_path = args[1].to_string();
