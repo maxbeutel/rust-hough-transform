@@ -75,7 +75,6 @@ fn dump_line_visualization(
         for rho_scaled in 0..rho_axis_size {
             let val = accumulator[(theta as usize, rho_scaled as usize)];
 
-            // @TODO use accumulator.as_vector().filter() here?
             if val < houghspace_filter_threshold {
                 continue;
             }
@@ -92,25 +91,19 @@ fn dump_line_visualization(
 
             //println!("(transform) {} {} {}/{} to {}/{}", theta, rho, p1_x.round(), p1_y.round(), p2_x.round(), p2_y.round());
 
-            let mut clipped_x1 = 0.0;
-            let mut clipped_y1 = 0.0;
-            let mut clipped_x2 = 0.0;
-            let mut clipped_y2 = 0.0;
-
-            clip_line_liang_barsky(
-                0.0, img_width as f64 - 1.0, 0.0, img_height as f64 - 1.0,
-                p1_x as f64, p1_y as f64, p2_x as f64, p2_y as f64,
-                &mut clipped_x1, &mut clipped_y1, &mut clipped_x2, &mut clipped_y2
-            );
+            let clipped = clip_line_liang_barsky(
+                0, (img_width - 1) as i32, 0, (img_height - 1) as i32,
+                p1_x, p1_y, p2_x, p2_y
+            ).expect("Line from rho/theta should be inside visible area of image.");
 
             //println!("(clip) {}/{} to {}/{}", clipped_x1.round(), clipped_y1.round(), clipped_x2.round(), clipped_y2.round());
 
             draw_line(
                 &mut img,
-                clipped_x1.round() as i32,
-                img_height as i32 - 1 - clipped_y1.round() as i32,
-                clipped_x2.round() as i32,
-                img_height as i32 - 1 - clipped_y2.round() as i32
+                clipped.0,
+                (img_height as i32) - 1 - clipped.1,
+                clipped.2,
+                (img_height as i32) - 1 - clipped.3
             );
         }
     }
@@ -236,44 +229,44 @@ fn test_line_from_rho_theta_special_cases() {
     let x = 50;
     let y = 40;
 
-    let line_coordinates_0deg = line_from_rho_theta(0, calculate_rho(0.0, x, y), img_width, img_height);
-    assert_eq!((50, 90, 50, 0), line_coordinates_0deg);
+    let line_coordinates = line_from_rho_theta(0, calculate_rho(0.0, x, y), img_width, img_height);
+    assert_eq!((50, 90, 50, 0), line_coordinates);
 
-    let line_coordinates_30deg = line_from_rho_theta(30, calculate_rho(30.0, x, y), img_width, img_height);
-    assert_eq!((0, 127, 73, 0), line_coordinates_30deg);
+    let line_coordinates = line_from_rho_theta(30, calculate_rho(30.0, x, y), img_width, img_height);
+    assert_eq!((0, 127, 73, 0), line_coordinates);
 
-    let line_coordinates_45deg = line_from_rho_theta(45, calculate_rho(45.0, x, y), img_width, img_height);
-    assert_eq!((0, 90, 90, 0), line_coordinates_45deg);
+    let line_coordinates = line_from_rho_theta(45, calculate_rho(45.0, x, y), img_width, img_height);
+    assert_eq!((0, 90, 90, 0), line_coordinates);
 
-    let line_coordinates_90deg = line_from_rho_theta(90, calculate_rho(90.0, x, y), img_width, img_height);
-    assert_eq!((0, 40, 100, 40), line_coordinates_90deg);
+    let line_coordinates = line_from_rho_theta(90, calculate_rho(90.0, x, y), img_width, img_height);
+    assert_eq!((0, 40, 100, 40), line_coordinates);
 
-    let line_coordinates_120deg = line_from_rho_theta(120, calculate_rho(120.0, x, y), img_width, img_height);
-    assert_eq!((-19, 0, 100, 69), line_coordinates_120deg);
+    let line_coordinates = line_from_rho_theta(120, calculate_rho(120.0, x, y), img_width, img_height);
+    assert_eq!((-19, 0, 100, 69), line_coordinates);
 
-    let line_coordinates_135deg = line_from_rho_theta(135, calculate_rho(135.0, x, y), img_width, img_height);
-    assert_eq!((10, 0, 100, 90), line_coordinates_135deg);
+    let line_coordinates = line_from_rho_theta(135, calculate_rho(135.0, x, y), img_width, img_height);
+    assert_eq!((10, 0, 100, 90), line_coordinates);
 
-    let line_coordinates_180deg = line_from_rho_theta(180, calculate_rho(180.0, x, y), img_width, img_height);
-    assert_eq!((50, 90, 50, 0), line_coordinates_180deg);
+    let line_coordinates = line_from_rho_theta(180, calculate_rho(180.0, x, y), img_width, img_height);
+    assert_eq!((50, 90, 50, 0), line_coordinates);
 
-    let line_coordinates_210deg = line_from_rho_theta(210, calculate_rho(210.0, x, y), img_width, img_height);
-    assert_eq!((0, 127, 73, 0), line_coordinates_210deg);
+    let line_coordinates = line_from_rho_theta(210, calculate_rho(210.0, x, y), img_width, img_height);
+    assert_eq!((0, 127, 73, 0), line_coordinates);
 
-    let line_coordinates_225deg = line_from_rho_theta(225, calculate_rho(225.0, x, y), img_width, img_height);
-    assert_eq!((0, 90, 90, 0), line_coordinates_225deg);
+    let line_coordinates = line_from_rho_theta(225, calculate_rho(225.0, x, y), img_width, img_height);
+    assert_eq!((0, 90, 90, 0), line_coordinates);
 
-    let line_coordinates_270deg = line_from_rho_theta(270, calculate_rho(270.0, x, y), img_width, img_height);
-    assert_eq!((0, 40, 100, 40), line_coordinates_270deg);
+    let line_coordinates = line_from_rho_theta(270, calculate_rho(270.0, x, y), img_width, img_height);
+    assert_eq!((0, 40, 100, 40), line_coordinates);
 
-    let line_coordinates_300deg = line_from_rho_theta(300, calculate_rho(300.0, x, y), img_width, img_height);
-    assert_eq!((19, 0, 100, 47), line_coordinates_300deg);
+    let line_coordinates = line_from_rho_theta(300, calculate_rho(300.0, x, y), img_width, img_height);
+    assert_eq!((19, 0, 100, 47), line_coordinates);
 
-    let line_coordinates_315deg = line_from_rho_theta(315, calculate_rho(315.0, x, y), img_width, img_height);
-    assert_eq!((-10, 0, 100, 110), line_coordinates_315deg);
+    let line_coordinates = line_from_rho_theta(315, calculate_rho(315.0, x, y), img_width, img_height);
+    assert_eq!((-10, 0, 100, 110), line_coordinates);
 
-    let line_coordinates_360deg = line_from_rho_theta(360, calculate_rho(360.0, x, y), img_width, img_height);
-    assert_eq!((50, 90, 50, 0), line_coordinates_360deg);
+    let line_coordinates = line_from_rho_theta(360, calculate_rho(360.0, x, y), img_width, img_height);
+    assert_eq!((50, 90, 50, 0), line_coordinates);
 }
 
 fn main() {
@@ -292,7 +285,7 @@ fn main() {
     // [ ] make more functional, split init()
     // [ ] allow configuration of theta_axis_size? for improved accuracy? (need to fix line_from... function)
     // [ ] more unit tests
-    // [ ] fix int overflow in line_from... function
+    // [X] fix int overflow in line_from... function
     // [ ] use f32 and only when needed
 
     let input_img_path = args[0].to_string();
@@ -314,56 +307,117 @@ fn main() {
 // Liang-Barsky function by Daniel White @ http://www.skytopia.com/project/articles/compsci/clipping.html
 #[allow(unused_assignments)]
 fn clip_line_liang_barsky(
-    edge_left: f64, edge_right: f64, edge_bottom: f64, edge_top: f64,   // Define the x/y clipping values for the border.
-    x0src: f64, y0src: f64, x1src: f64, y1src: f64,                 // Define the start and end points of the line.
-    x0clip: &mut f64, y0clip: &mut f64, x1clip: &mut f64, y1clip: &mut f64 // The output values, so declare these outside.
-) -> bool {
+    edge_left: i32, edge_right: i32, edge_bottom: i32, edge_top: i32,   // Define the x/y clipping values for the border.
+    x0src: i32, y0src: i32, x1src: i32, y1src: i32
+) -> Option<(i32, i32, i32, i32)> {
+    let mut t0: f32 = 0.0; let mut t1: f32 = 1.0;
 
-    let mut t0: f64 = 0.0; let mut t1: f64 = 1.0;
-    let xdelta = x1src - x0src;
-    let ydelta = y1src - y0src;
-    let mut p = 0.0f64;
-    let mut q = 0.0f64;
-    let mut r = 0.0f64;
+    let xdelta = (x1src as f32) - (x0src as f32);
+    let ydelta = (y1src as f32) - (y0src as f32);
+
+    let mut p = 0.0f32;
+    let mut q = 0.0f32;
+    let mut r = 0.0f32;
 
     for edge in 0..4 {   // Traverse through left, right, bottom, top edges.
-        if edge == 0 {  p = -xdelta;    q = -(edge_left - x0src);   }
-        if edge == 1 {  p = xdelta;     q =  edge_right - x0src;    }
-        if edge == 2 {  p = -ydelta;    q = -(edge_bottom - y0src); }
-        if edge == 3 {  p = ydelta;     q =  edge_top - y0src;      }
-        r = q/p;
+        if edge == 0 {  p = -xdelta;    q = -((edge_left as f32) - (x0src as f32));   }
+        if edge == 1 {  p = xdelta;     q =  (edge_right as f32) - (x0src as f32);    }
+        if edge == 2 {  p = -ydelta;    q = -((edge_bottom as f32) - (y0src as f32)); }
+        if edge == 3 {  p = ydelta;     q =  (edge_top as f32) - (y0src as f32);      }
+        r = q / p;
 
         if p == 0.0 && q < 0.0 {
             // Don't draw line at all. (parallel line outside)
-            return false;
+            return None;
         }
 
         if p < 0.0 {
-            if r as f64 > t1 {
+            if r as f32 > t1 {
                 // Don't draw line at all.
-                return false;
-            } else if r as f64 > t0 {
+                return None;
+            } else if r as f32 > t0 {
                 // Line is clipped!
-                t0 = r as f64;
+                t0 = r as f32;
             }
         } else if p > 0.0 {
-            if (r as f64) < t0 {
+            if (r as f32) < t0 {
                 // Don't draw line at all.
-                return false;
+                return None;
             }
-            else if (r as f64) < t1 {
+            else if (r as f32) < t1 {
                 // Line is clipped!
-                t1 = r as f64;
+                t1 = r as f32;
             }
         }
     }
 
-    *x0clip = x0src as f64 + t0 as f64 * xdelta as f64;
-    *y0clip = y0src as f64 + t0 as f64 * ydelta as f64;
-    *x1clip = x0src as f64 + t1 as f64 * xdelta as f64;
-    *y1clip = y0src as f64 + t1 as f64 * ydelta as f64;
+    let x0clip = (x0src as f32) + (t0 as f32) * (xdelta as f32);
+    let y0clip = (y0src as f32) + (t0 as f32) * (ydelta as f32);
+    let x1clip = (x0src as f32) + (t1 as f32) * (xdelta as f32);
+    let y1clip = (y0src as f32) + (t1 as f32) * (ydelta as f32);
 
-    return true;
+    Some((x0clip.round() as i32, y0clip.round() as i32, x1clip.round() as i32, y1clip.round() as i32))
+}
+
+#[test]
+fn test_clip_line_liang_barsky() {
+    let img_width = 500;
+    let img_height = 300;
+
+    // Testcase A
+    let p1 = (-200, -100);
+    let p2 = (220, 400);
+
+    let clipped = clip_line_liang_barsky(
+        0, img_width, 0, img_height,
+        p1.0, p1.1, p2.0, p2.1
+    ).unwrap();
+
+    assert_eq!((0, 138, 136, 300), clipped);
+
+    // Testcase B
+    let p1 = (300, -200);
+    let p2 = (0, 390);
+
+    let clipped = clip_line_liang_barsky(
+        0, img_width, 0, img_height,
+        p1.0, p1.1, p2.0, p2.1
+    ).unwrap();
+
+    assert_eq!((198, 0, 46, 300), clipped);
+
+    // Testcase C
+    let p1 = (400, 400);
+    let p2 = (400, -150);
+
+    let clipped = clip_line_liang_barsky(
+        0, img_width, 0, img_height,
+        p1.0, p1.1, p2.0, p2.1
+    ).unwrap();
+
+    assert_eq!((400, 300, 400, 0), clipped);
+
+    // Testcase D
+    let p1 = (200, 100);
+    let p2 = (250, 190);
+
+    let clipped = clip_line_liang_barsky(
+        0, img_width, 0, img_height,
+        p1.0, p1.1, p2.0, p2.1
+    ).unwrap();
+
+    assert_eq!((200, 100, 250, 190), clipped);
+
+    // Testcase E - outside of clipping window
+    let p1 = (-200, -100);
+    let p2 = (-250, -190);
+
+    let clipped = clip_line_liang_barsky(
+        0, img_width, 0, img_height,
+        p1.0, p1.1, p2.0, p2.1
+    );
+
+    assert_eq!(None, clipped);
 }
 
 // Based on http://stackoverflow.com/questions/34440429/draw-a-line-in-a-bitmap-possibly-with-piston
