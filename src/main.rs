@@ -14,10 +14,6 @@ use std::str::FromStr;
 
 use image::{ImageBuffer, Pixel};
 
-fn rgb_to_greyscale(r: u8, g: u8, b: u8) -> u8 {
-    return ((r as f32 + g as f32 + b as f32) / 3.0).round() as u8;
-}
-
 fn deg2rad(deg: f32) -> f32 {
     deg.to_radians()
     // this is IMPORTANT://  compute radians based on the theta axis size, which can be larger than 180 deg!
@@ -29,15 +25,62 @@ fn calculate_max_line_length(img_width: u32, img_height: u32) -> f32 {
     ((img_width as f32).hypot(img_height as f32)).ceil()
 }
 
-fn is_edge(img: &image::RgbImage, x: u32, y: u32) -> bool {
-    let pixel = img.get_pixel(x, y);
-    let i = rgb_to_greyscale(pixel.channels()[0], pixel.channels()[1], pixel.channels()[2]);
-    i < 1
+fn rgb_to_greyscale(r: u8, g: u8, b: u8) -> u8 {
+    ((r as f32 + g as f32 + b as f32) / 3.0).round() as u8
+}
+
+fn detect_edge<F>(point: (u32, u32), width: u32, height: u32, min_contrast: u8, accessor: &F) -> bool
+    where F: Fn((u32, u32)) -> u8 {
+    let (x, y) = point;
+    let center_value = accessor(point);
+
+    for i in 0..9 {
+        if i == 0 {
+            continue;
+        }
+
+        let new_x = (x as i32) + (i % 3) - 1;
+        let new_y = (y as i32) + (i / 3) - 1;
+
+        if (new_x < 0) || (new_x >= width as i32) || (new_y < 0) || (new_y >= height as i32) {
+            continue;
+        }
+
+        let current_value = accessor((new_x as u32, new_y as u32));
+
+        if (current_value as i32 - center_value as i32).abs() >= min_contrast as i32 {
+            return true;
+        }
+    }
+
+    false
+}
+
+#[test]
+fn test_detect_edge() {
+    let min_contrast = 100;
+    let width = 10;
+    let height = 9;
+
+    // simulate image with white background, black lines
+    let mut matrix: na::DMatrix<u8> = na::DMatrix::from_element(width, height, 255);
+
+    matrix[(4, 2)] = 0;
+    matrix[(4, 3)] = 0;
+    matrix[(4, 4)] = 0;
+
+    let accessor = |(x, y)| matrix[(x as usize, y as usize)];
+
+    assert_eq!(true, detect_edge((4, 2), width as u32, height as u32, min_contrast, &accessor));
+    assert_eq!(true, detect_edge((4, 3), width as u32, height as u32, min_contrast, &accessor));
+    assert_eq!(false, detect_edge((0, 0), width as u32, height as u32, min_contrast, &accessor));
+    assert_eq!(false, detect_edge((9, 8), width as u32, height as u32, min_contrast, &accessor));
 }
 
 fn dump_houghspace(accumulator: &na::DMatrix<u32>, houghspace_img_path: &str) {
     let accu_clone = accumulator.clone().into_vector();
     let max_accumulator_value = *accu_clone.iter().max().unwrap();
+
     println!("max accu value: {}", max_accumulator_value);
 
     let out_img_width = accumulator.nrows() as u32;
@@ -71,6 +114,8 @@ fn dump_line_visualization(
     let rho_axis_half = ((rho_axis_size as f32) / 2.0).round();
     let max_line_length = calculate_max_line_length(img_width, img_height);
 
+    let mut lines = vec![];
+
     for theta in 0..theta_axis_size {
         for rho_scaled in 0..rho_axis_size {
             let val = accumulator[(theta as usize, rho_scaled as usize)];
@@ -88,20 +133,26 @@ fn dump_line_visualization(
                 img_height
             );
 
-            let clipped_line_coordinates = clip_line_liang_barsky(
-                (0, (img_width - 1) as i32, 0, (img_height - 1) as i32),
-                line_coordinates
-            ).expect("Line from rho/theta should be inside visible area of image.");
-
-            let img_line_coordinates = (
-                clipped_line_coordinates.0,
-                (img_height as i32) - 1 - clipped_line_coordinates.1, // don't overflow height
-                clipped_line_coordinates.2,
-                (img_height as i32) - 1 - clipped_line_coordinates.3 // don't overflow height
-            );
-
-            draw_line(&mut img, img_line_coordinates);
+            lines.push(line_coordinates);
         }
+    }
+
+    println!("detected lines: {}", lines.len());
+
+    for line_coordinates in lines {
+        let clipped_line_coordinates = clip_line_liang_barsky(
+            (0, (img_width - 1) as i32, 0, (img_height - 1) as i32),
+            line_coordinates
+        ).expect("Line from rho/theta should be inside visible area of image.");
+
+        let img_line_coordinates = (
+            clipped_line_coordinates.0,
+            (img_height as i32) - 1 - clipped_line_coordinates.1, // don't overflow height
+            clipped_line_coordinates.2,
+            (img_height as i32) - 1 - clipped_line_coordinates.3 // don't overflow height
+        );
+
+        draw_line(&mut img, img_line_coordinates);
     }
 
     let _ = img.save(&Path::new(line_visualization_img_path));
@@ -121,11 +172,16 @@ fn hough_transform(img: &image::RgbImage, rho_axis_scale_factor: u32) -> na::DMa
 
     let mut accumulator: na::DMatrix<u32> = na::DMatrix::new_zeros(theta_axis_size as usize, rho_axis_size as usize);
 
+    let accessor = |(x, y)| {
+        let pixel = &mut img.get_pixel(x, y);
+        rgb_to_greyscale(pixel.channels()[0], pixel.channels()[1], pixel.channels()[2])
+    };
+
     for y in 0..img_height {
         for x in 0..img_width {
             let y_inverted = img_height - y - 1;
 
-            if is_edge(&img, x, y) {
+            if detect_edge((x, y), img_width, img_height, 100, &accessor) {
                 for theta in 1..theta_axis_size {
                     let rho = calculate_rho(theta as f32, x, y_inverted);
                     let rho_scaled = ((rho * rho_axis_half as f32 / max_line_length as f32).round() + rho_axis_half as f32) as u32;
@@ -148,9 +204,9 @@ fn calculate_rho(theta: f32, x: u32, y: u32) -> f32 {
 
 #[test]
 fn test_calculate_rho() {
-    assert_eq!(50.0, calculate_rho(0.0, 50, 40));
+    assert_eq!(50.0, calculate_rho(0.0, 50, 40).round());
     assert_eq!(64.0, calculate_rho(45.0, 50, 40).round());
-    assert_eq!(40.0, calculate_rho(90.0, 50, 40));
+    assert_eq!(40.0, calculate_rho(90.0, 50, 40).round());
     assert_eq!(-50.0, calculate_rho(180.0, 50, 40).round());
     assert_eq!(-40.0, calculate_rho(270.0, 50, 40).round());
     assert_eq!(-7.0, calculate_rho(135.0, 50, 40).round());
@@ -293,7 +349,7 @@ fn main() {
     let houghspace_filter_threshold = u32::from_str(&args[4]).expect("ERROR 'houghspace_filter_threshold' argument not a number.");
 
     let mut img = image::open(&Path::new(&input_img_path)).expect("ERROR: input file not found.").to_rgb();
-    let accumulator = hough_transform(&img, rho_axis_scale_factor);
+    let accumulator = hough_transform(&mut img, rho_axis_scale_factor);
 
     dump_houghspace(&accumulator, &houghspace_img_path);
     dump_line_visualization(&mut img, &accumulator, houghspace_filter_threshold, &line_visualization_img_path);
