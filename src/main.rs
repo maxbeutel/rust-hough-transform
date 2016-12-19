@@ -95,9 +95,9 @@ fn dump_line_visualization(
 
             let img_line_coordinates = (
                 clipped_line_coordinates.0,
-                (img_height as i32) - clipped_line_coordinates.1, // @FIXME do we need the -1 here?
+                (img_height as i32) - 1 - clipped_line_coordinates.1, // don't overflow height
                 clipped_line_coordinates.2,
-                (img_height as i32) - clipped_line_coordinates.3 // @FIXME do we need the -1 here?
+                (img_height as i32) - 1 - clipped_line_coordinates.3 // don't overflow height
             );
 
             draw_line(&mut img, img_line_coordinates);
@@ -279,9 +279,9 @@ fn main() {
     // [X] argument parsing
     // [ ] improving edge detection
     // [X] make computation of max. line length work for landscape and non-landscape
-    // [ ] make more functional, split init()
+    // [X] make more functional, split init()
     // [ ] allow configuration of theta_axis_size? for improved accuracy? (need to fix line_from... function)
-    // [ ] more unit tests
+    // [X] more unit tests
     // [X] fix int overflow in line_from... function
     // [ ] use f32 and only when needed
 
