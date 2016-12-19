@@ -276,11 +276,11 @@ fn main() {
     }
 
     // TODO:
-    // [X] argument parsing
     // [ ] improving edge detection
+    // [ ] allow configuration of theta_axis_size? for improved accuracy? (need to fix line_from... function)
+    // [X] argument parsing
     // [X] make computation of max. line length work for landscape and non-landscape
     // [X] make more functional, split init()
-    // [ ] allow configuration of theta_axis_size? for improved accuracy? (need to fix line_from... function)
     // [X] more unit tests
     // [X] fix int overflow in line_from... function
     // [X] use f32 and only when needed
