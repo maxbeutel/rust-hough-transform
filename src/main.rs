@@ -296,7 +296,7 @@ fn main() {
     }
 
     // TODO:
-    // [ ] improving edge detection
+    // [X] improving edge detection
     // [ ] allow configuration of theta_axis_size? for improved accuracy? (need to fix line_from... function)
     // [X] argument parsing
     // [X] make computation of max. line length work for landscape and non-landscape
