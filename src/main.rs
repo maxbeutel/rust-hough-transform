@@ -16,20 +16,22 @@ use image::{ImageBuffer, Pixel};
 
 #[inline]
 fn deg2rad(deg: u32, axis_size: u32) -> f64 {
-    // this is IMPORTANT:
-    // compute radians based on the theta axis size, which can be larger than 180 deg!
+    // compute radians based on the theta axis size, which can be larger than 180 deg
     let pi: f64 = std::f64::consts::PI;
     deg as f64 * (pi / axis_size as f64)
 }
 
+#[inline]
 fn calculate_max_line_length(img_width: u32, img_height: u32) -> f64 {
     ((img_width as f64).hypot(img_height as f64)).ceil()
 }
 
+#[inline]
 fn rgb_to_greyscale(r: u8, g: u8, b: u8) -> u8 {
     ((r as f64 + g as f64 + b as f64) / 3.0).round() as u8
 }
 
+#[inline]
 fn is_edge(img: &image::RgbImage, x: u32, y: u32) -> bool {
     let pixel = img.get_pixel(x, y);
     let i = rgb_to_greyscale(pixel.channels()[0], pixel.channels()[1], pixel.channels()[2]);
@@ -40,7 +42,7 @@ fn dump_houghspace(accumulator: &na::DMatrix<u32>, houghspace_img_path: &str) {
     let accu_clone = accumulator.clone().into_vector();
     let max_accumulator_value = *accu_clone.iter().max().unwrap();
 
-    println!("max accu value: {}", max_accumulator_value);
+    println!("# max accumulator value: {}", max_accumulator_value);
 
     let out_img_width = accumulator.nrows() as u32;
     let out_img_height = accumulator.ncols() as u32;
@@ -63,6 +65,7 @@ fn dump_houghspace(accumulator: &na::DMatrix<u32>, houghspace_img_path: &str) {
 fn dump_line_visualization(
     mut img: &mut image::RgbImage,
     accumulator: &na::DMatrix<u32>,
+    theta_axis_scale_factor: u32,
     houghspace_filter_threshold: u32,
     line_visualization_img_path: &str
 ) {
@@ -87,19 +90,19 @@ fn dump_line_visualization(
 
             let line_coordinates = line_from_rho_theta(
                 theta as u32,
-                theta_axis_size as u32,
+                theta_axis_scale_factor,
                 rho as f64,
                 img_width,
                 img_height
             );
 
-            lines.push(line_coordinates);
+            lines.push((theta, line_coordinates));
         }
     }
 
-    println!("detected lines: {}", lines.len());
+    println!("# detected lines: {}", lines.len());
 
-    for line_coordinates in lines {
+    for (_, line_coordinates) in lines {
         let clipped_line_coordinates = clip_line_liang_barsky(
             (0, (img_width - 1) as i32, 0, (img_height - 1) as i32),
             line_coordinates
@@ -118,15 +121,13 @@ fn dump_line_visualization(
     let _ = img.save(&Path::new(line_visualization_img_path));
 }
 
-fn hough_transform(img: &image::RgbImage, rho_axis_scale_factor: u32) -> na::DMatrix<u32> {
+fn hough_transform(img: &image::RgbImage, theta_axis_scale_factor: u32, rho_axis_scale_factor: u32) -> na::DMatrix<u32> {
     let (img_width, img_height) = img.dimensions();
 
     let max_line_length = calculate_max_line_length(img_width, img_height);
 
-    let theta_axis_size = 1 * 180;
+    let theta_axis_size = theta_axis_scale_factor * 180;
 
-    // making rho axis size larger increases accuracy a lot (compare 8 * maxlen vs 2 * maxlen)
-    // (preventing that different angles generate the same rho)
     let rho_axis_size = (max_line_length as u32) * rho_axis_scale_factor;
     let rho_axis_half = ((rho_axis_size as f64) / 2.0).round();
 
@@ -161,21 +162,17 @@ fn calculate_rho(theta: u32, theta_axis_size: u32, x: u32, y: u32) -> f64 {
 fn test_calculate_rho() {
     let theta_axis_size = 180;
 
-    assert_eq!(50.0, calculate_rho(0.0, theta_axis_size, 50, 40).round());
-    assert_eq!(64.0, calculate_rho(45.0, theta_axis_size, 50, 40).round());
-    assert_eq!(40.0, calculate_rho(90.0, theta_axis_size, 50, 40).round());
-    assert_eq!(-50.0, calculate_rho(180.0, theta_axis_size, 50, 40).round());
-    assert_eq!(-40.0, calculate_rho(270.0, theta_axis_size, 50, 40).round());
-    assert_eq!(-7.0, calculate_rho(135.0, theta_axis_size, 50, 40).round());
-
-    println!("{}", deg2rad(90.0, 2*180));
-
-    assert_eq!(40.0, calculate_rho(90.0, theta_axis_size, 50, 40).round());
+    assert_eq!(50.0, calculate_rho(0, theta_axis_size, 50, 40).round());
+    assert_eq!(64.0, calculate_rho(45, theta_axis_size, 50, 40).round());
+    assert_eq!(40.0, calculate_rho(90, theta_axis_size, 50, 40).round());
+    assert_eq!(-50.0, calculate_rho(180, theta_axis_size, 50, 40).round());
+    assert_eq!(-40.0, calculate_rho(270, theta_axis_size, 50, 40).round());
+    assert_eq!(-7.0, calculate_rho(135, theta_axis_size, 50, 40).round());
 }
 
 fn line_from_rho_theta(
     theta: u32,
-    theta_axis_size: u32,
+    theta_axis_scale_factor: u32,
     rho: f64,
     img_width: u32,
     img_height: u32
@@ -186,8 +183,9 @@ fn line_from_rho_theta(
     let mut p2_x = 0.0 as f64;
     let mut p2_y = 0.0 as f64;
 
-    // @FIXME this must be changed if we allow a different theta_axis_size
-    let theta = if theta > 180 { theta as f64 - 180.0 } else { theta as f64 };
+    // herere we scale theta back to "base 180", if theta scale factor was > 1
+    let theta = (theta as f64 / theta_axis_scale_factor as f64).round();
+    let theta_axis_size = 180;
 
     let theta_reverse = theta % 90.0;
     let theta_remaining = 90.0 - theta_reverse;
@@ -245,78 +243,58 @@ fn test_line_from_rho_theta_special_cases() {
     let y = 40;
 
     let theta_axis_size = 180;
+    let theta_axis_scale_factor = 1;
 
-    let line_coordinates = line_from_rho_theta(0, theta_axis_size, calculate_rho(0.0, theta_axis_size, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(0, theta_axis_scale_factor, calculate_rho(0, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((50, 90, 50, 0), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(30, theta_axis_size, calculate_rho(30.0, theta_axis_size, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(30, theta_axis_scale_factor, calculate_rho(30, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((0, 127, 73, 0), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(45, theta_axis_size, calculate_rho(45.0, theta_axis_size, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(45, theta_axis_scale_factor, calculate_rho(45, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((0, 90, 90, 0), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(90, theta_axis_size, calculate_rho(90.0, theta_axis_size, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(90, theta_axis_scale_factor, calculate_rho(90, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((0, 40, 100, 40), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(120, theta_axis_size, calculate_rho(120.0, theta_axis_size, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(120, theta_axis_scale_factor, calculate_rho(120, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((-19, 0, 100, 69), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(135, theta_axis_size, calculate_rho(135.0, theta_axis_size, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(135, theta_axis_scale_factor, calculate_rho(135, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((10, 0, 100, 90), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(180, theta_axis_size, calculate_rho(180.0, theta_axis_size, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(180, theta_axis_scale_factor, calculate_rho(180, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((50, 90, 50, 0), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(210, theta_axis_size, calculate_rho(210.0, theta_axis_size, x, y), img_width, img_height);
-    assert_eq!((0, 127, 73, 0), line_coordinates);
+    // increase theta axis by two: then theta equals to 180 is the same as if theta is 90 for scale factor of 1
+    let theta_axis_size = 360;
+    let theta_axis_scale_factor = 2;
 
-    let line_coordinates = line_from_rho_theta(225, theta_axis_size, calculate_rho(225.0, theta_axis_size, x, y), img_width, img_height);
-    assert_eq!((0, 90, 90, 0), line_coordinates);
-
-    let line_coordinates = line_from_rho_theta(270, theta_axis_size, calculate_rho(270.0, theta_axis_size, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(180, theta_axis_scale_factor, calculate_rho(180, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((0, 40, 100, 40), line_coordinates);
-
-    let line_coordinates = line_from_rho_theta(300, theta_axis_size, calculate_rho(300.0, theta_axis_size, x, y), img_width, img_height);
-    assert_eq!((19, 0, 100, 47), line_coordinates);
-
-    let line_coordinates = line_from_rho_theta(315, theta_axis_size, calculate_rho(315.0, theta_axis_size, x, y), img_width, img_height);
-    assert_eq!((-10, 0, 100, 110), line_coordinates);
-
-    let line_coordinates = line_from_rho_theta(360, theta_axis_size, calculate_rho(360.0, theta_axis_size, x, y), img_width, img_height);
-    assert_eq!((50, 90, 50, 0), line_coordinates);
 }
 
 fn main() {
     let args = env::args().skip(1).collect::<Vec<_>>();
-    println!("args: {:?}", args);
 
     if args.len() < 4 {
-        writeln!(io::stderr(), "Usage: hough-image input_path houghspace_img_path line_visualization_img_path rho_axis_scale_factor houghspace_filter_threshold").unwrap();
+        writeln!(io::stderr(), "Usage: hough-image input_path houghspace_img_path line_visualization_img_path theta_axis_scale_factor rho_axis_scale_factor houghspace_filter_threshold").unwrap();
         process::exit(1);
     }
-
-    // TODO:
-    // [X] improving edge detection
-    // [ ] allow configuration of theta_axis_size? for improved accuracy? (need to fix line_from... function)
-    // [X] argument parsing
-    // [X] make computation of max. line length work for landscape and non-landscape
-    // [X] make more functional, split init()
-    // [X] more unit tests
-    // [X] fix int overflow in line_from... function
-    // [X] use f64 everywhere, absolutely everywhere!
 
     let input_img_path = args[0].to_string();
     let houghspace_img_path = args[1].to_string();
     let line_visualization_img_path = args[2].to_string();
 
-    let rho_axis_scale_factor = u32::from_str(&args[3]).expect("ERROR 'rho_axis_scale_factor' argument not a number.");
-    let houghspace_filter_threshold = u32::from_str(&args[4]).expect("ERROR 'houghspace_filter_threshold' argument not a number.");
+    let theta_axis_scale_factor = u32::from_str(&args[3]).expect("ERROR 'theta_axis_scale_factor' argument not a number.");
+    let rho_axis_scale_factor = u32::from_str(&args[4]).expect("ERROR 'rho_axis_scale_factor' argument not a number.");
+    let houghspace_filter_threshold = u32::from_str(&args[5]).expect("ERROR 'houghspace_filter_threshold' argument not a number.");
 
     let mut img = image::open(&Path::new(&input_img_path)).expect("ERROR: input file not found.").to_rgb();
-    let accumulator = hough_transform(&mut img, rho_axis_scale_factor);
+    let accumulator = hough_transform(&mut img, theta_axis_scale_factor, rho_axis_scale_factor);
 
     dump_houghspace(&accumulator, &houghspace_img_path);
-    dump_line_visualization(&mut img, &accumulator, houghspace_filter_threshold, &line_visualization_img_path);
+    dump_line_visualization(&mut img, &accumulator, theta_axis_scale_factor, houghspace_filter_threshold, &line_visualization_img_path);
 }
 
 // -- utility functions --
