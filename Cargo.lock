@@ -1,5 +1,5 @@
 [root]
-name = "hough-image"
+name = "hough-transform"
 version = "0.1.0"
 dependencies = [
  "image 0.10.3 (registry+https://github.com/rust-lang/crates.io-index)",

@@ -1,7 +1,7 @@
 [package]
-name = "hough-image"
+name = "hough-transform"
 version = "0.1.0"
-authors = ["Max Beutel <me@maxbeutel.de>"]
+authors = ["Max Beutel"]
 
 [dependencies]
 nalgebra = "0.10.1"
