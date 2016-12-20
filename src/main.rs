@@ -7,74 +7,33 @@ use std::io::Write;
 use std::env;
 use std::process;
 use std::io;
-use std::f32;
+use std::f64;
 use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 
 use image::{ImageBuffer, Pixel};
 
-fn deg2rad(deg: f32) -> f32 {
-    deg.to_radians()
-    // this is IMPORTANT://  compute radians based on the theta axis size, which can be larger than 180 deg!
-    // let radians = deg as f32 * std::f32::consts::PI / axis_size as f32;
-    // return radians;
+#[inline]
+fn deg2rad(deg: u32, axis_size: u32) -> f64 {
+    // this is IMPORTANT:
+    // compute radians based on the theta axis size, which can be larger than 180 deg!
+    let pi: f64 = std::f64::consts::PI;
+    deg as f64 * (pi / axis_size as f64)
 }
 
-fn calculate_max_line_length(img_width: u32, img_height: u32) -> f32 {
-    ((img_width as f32).hypot(img_height as f32)).ceil()
+fn calculate_max_line_length(img_width: u32, img_height: u32) -> f64 {
+    ((img_width as f64).hypot(img_height as f64)).ceil()
 }
 
 fn rgb_to_greyscale(r: u8, g: u8, b: u8) -> u8 {
-    ((r as f32 + g as f32 + b as f32) / 3.0).round() as u8
+    ((r as f64 + g as f64 + b as f64) / 3.0).round() as u8
 }
 
-fn detect_edge<F>(point: (u32, u32), width: u32, height: u32, min_contrast: u8, accessor: &F) -> bool
-    where F: Fn((u32, u32)) -> u8 {
-    let (x, y) = point;
-    let center_value = accessor(point);
-
-    for i in 0..9 {
-        if i == 0 {
-            continue;
-        }
-
-        let new_x = (x as i32) + (i % 3) - 1;
-        let new_y = (y as i32) + (i / 3) - 1;
-
-        if (new_x < 0) || (new_x >= width as i32) || (new_y < 0) || (new_y >= height as i32) {
-            continue;
-        }
-
-        let current_value = accessor((new_x as u32, new_y as u32));
-
-        if (current_value as i32 - center_value as i32).abs() >= min_contrast as i32 {
-            return true;
-        }
-    }
-
-    false
-}
-
-#[test]
-fn test_detect_edge() {
-    let min_contrast = 100;
-    let width = 10;
-    let height = 9;
-
-    // simulate image with white background, black lines
-    let mut matrix: na::DMatrix<u8> = na::DMatrix::from_element(width, height, 255);
-
-    matrix[(4, 2)] = 0;
-    matrix[(4, 3)] = 0;
-    matrix[(4, 4)] = 0;
-
-    let accessor = |(x, y)| matrix[(x as usize, y as usize)];
-
-    assert_eq!(true, detect_edge((4, 2), width as u32, height as u32, min_contrast, &accessor));
-    assert_eq!(true, detect_edge((4, 3), width as u32, height as u32, min_contrast, &accessor));
-    assert_eq!(false, detect_edge((0, 0), width as u32, height as u32, min_contrast, &accessor));
-    assert_eq!(false, detect_edge((9, 8), width as u32, height as u32, min_contrast, &accessor));
+fn is_edge(img: &image::RgbImage, x: u32, y: u32) -> bool {
+    let pixel = img.get_pixel(x, y);
+    let i = rgb_to_greyscale(pixel.channels()[0], pixel.channels()[1], pixel.channels()[2]);
+    i < 1
 }
 
 fn dump_houghspace(accumulator: &na::DMatrix<u32>, houghspace_img_path: &str) {
@@ -90,7 +49,7 @@ fn dump_houghspace(accumulator: &na::DMatrix<u32>, houghspace_img_path: &str) {
 
     for y in 0..out_img_height {
         for x in 0..out_img_width {
-            let n = na::min(((accumulator[(x as usize, y as usize)] as f32) * 255.0 / (max_accumulator_value as f32)).round() as u32, 255) as u8;
+            let n = na::min(((accumulator[(x as usize, y as usize)] as f64) * 255.0 / (max_accumulator_value as f64)).round() as u32, 255) as u8;
             let pixel = image::Rgb([n, n, n]);
 
             out[(x, out_img_height - y - 1)] = pixel;
@@ -111,7 +70,7 @@ fn dump_line_visualization(
 
     let theta_axis_size = accumulator.nrows();
     let rho_axis_size = accumulator.ncols();
-    let rho_axis_half = ((rho_axis_size as f32) / 2.0).round();
+    let rho_axis_half = ((rho_axis_size as f64) / 2.0).round();
     let max_line_length = calculate_max_line_length(img_width, img_height);
 
     let mut lines = vec![];
@@ -124,11 +83,12 @@ fn dump_line_visualization(
                 continue;
             }
 
-            let rho = (rho_scaled as f32 - rho_axis_half) * max_line_length / rho_axis_half;
+            let rho = (rho_scaled as f64 - rho_axis_half) * max_line_length / rho_axis_half;
 
             let line_coordinates = line_from_rho_theta(
                 theta as u32,
-                rho,
+                theta_axis_size as u32,
+                rho as f64,
                 img_width,
                 img_height
             );
@@ -163,28 +123,23 @@ fn hough_transform(img: &image::RgbImage, rho_axis_scale_factor: u32) -> na::DMa
 
     let max_line_length = calculate_max_line_length(img_width, img_height);
 
-    let theta_axis_size = 180 + 1;
+    let theta_axis_size = 1 * 180;
 
     // making rho axis size larger increases accuracy a lot (compare 8 * maxlen vs 2 * maxlen)
     // (preventing that different angles generate the same rho)
     let rho_axis_size = (max_line_length as u32) * rho_axis_scale_factor;
-    let rho_axis_half = ((rho_axis_size as f32) / 2.0).round();
+    let rho_axis_half = ((rho_axis_size as f64) / 2.0).round();
 
     let mut accumulator: na::DMatrix<u32> = na::DMatrix::new_zeros(theta_axis_size as usize, rho_axis_size as usize);
-
-    let accessor = |(x, y)| {
-        let pixel = &mut img.get_pixel(x, y);
-        rgb_to_greyscale(pixel.channels()[0], pixel.channels()[1], pixel.channels()[2])
-    };
 
     for y in 0..img_height {
         for x in 0..img_width {
             let y_inverted = img_height - y - 1;
 
-            if detect_edge((x, y), img_width, img_height, 100, &accessor) {
-                for theta in 1..theta_axis_size {
-                    let rho = calculate_rho(theta as f32, x, y_inverted);
-                    let rho_scaled = ((rho * rho_axis_half as f32 / max_line_length as f32).round() + rho_axis_half as f32) as u32;
+            if is_edge(&img, x, y) {
+                for theta in 0..theta_axis_size {
+                    let rho = calculate_rho(theta, theta_axis_size, x, y_inverted);
+                    let rho_scaled = ((rho * rho_axis_half as f64 / max_line_length as f64).round() + rho_axis_half as f64) as u32;
 
                     accumulator[(theta as usize, rho_scaled as usize)] += 1;
                 }
@@ -195,37 +150,44 @@ fn hough_transform(img: &image::RgbImage, rho_axis_scale_factor: u32) -> na::DMa
     accumulator
 }
 
-fn calculate_rho(theta: f32, x: u32, y: u32) -> f32 {
-    let sin = deg2rad(theta as f32).sin();
-    let cos = deg2rad(theta as f32).cos();
+fn calculate_rho(theta: u32, theta_axis_size: u32, x: u32, y: u32) -> f64 {
+    let sin = deg2rad(theta, theta_axis_size).sin();
+    let cos = deg2rad(theta, theta_axis_size).cos();
 
-    (x as f32) * cos + (y as f32) * sin
+    (x as f64) * cos + (y as f64) * sin
 }
 
 #[test]
 fn test_calculate_rho() {
-    assert_eq!(50.0, calculate_rho(0.0, 50, 40).round());
-    assert_eq!(64.0, calculate_rho(45.0, 50, 40).round());
-    assert_eq!(40.0, calculate_rho(90.0, 50, 40).round());
-    assert_eq!(-50.0, calculate_rho(180.0, 50, 40).round());
-    assert_eq!(-40.0, calculate_rho(270.0, 50, 40).round());
-    assert_eq!(-7.0, calculate_rho(135.0, 50, 40).round());
+    let theta_axis_size = 180;
+
+    assert_eq!(50.0, calculate_rho(0.0, theta_axis_size, 50, 40).round());
+    assert_eq!(64.0, calculate_rho(45.0, theta_axis_size, 50, 40).round());
+    assert_eq!(40.0, calculate_rho(90.0, theta_axis_size, 50, 40).round());
+    assert_eq!(-50.0, calculate_rho(180.0, theta_axis_size, 50, 40).round());
+    assert_eq!(-40.0, calculate_rho(270.0, theta_axis_size, 50, 40).round());
+    assert_eq!(-7.0, calculate_rho(135.0, theta_axis_size, 50, 40).round());
+
+    println!("{}", deg2rad(90.0, 2*180));
+
+    assert_eq!(40.0, calculate_rho(90.0, theta_axis_size, 50, 40).round());
 }
 
 fn line_from_rho_theta(
     theta: u32,
-    rho: f32,
+    theta_axis_size: u32,
+    rho: f64,
     img_width: u32,
     img_height: u32
 ) -> (i32, i32, i32, i32) {
-    let mut p1_x = 0.0 as f32;
-    let mut p1_y = 0.0 as f32;
+    let mut p1_x = 0.0 as f64;
+    let mut p1_y = 0.0 as f64;
 
-    let mut p2_x = 0.0 as f32;
-    let mut p2_y = 0.0 as f32;
+    let mut p2_x = 0.0 as f64;
+    let mut p2_y = 0.0 as f64;
 
     // @FIXME this must be changed if we allow a different theta_axis_size
-    let theta = if theta > 180 { theta as f32 - 180.0 } else { theta as f32 };
+    let theta = if theta > 180 { theta as f64 - 180.0 } else { theta as f64 };
 
     let theta_reverse = theta % 90.0;
     let theta_remaining = 90.0 - theta_reverse;
@@ -233,7 +195,7 @@ fn line_from_rho_theta(
     // special cases
     if theta == 0.0 || theta == 180.0 {
         p1_x = rho.abs();
-        p1_y = img_height as f32;
+        p1_y = img_height as f64;
 
         p2_x = rho.abs();
         p2_y = 0.0;
@@ -241,33 +203,33 @@ fn line_from_rho_theta(
         p1_x = 0.0;
         p1_y = rho.abs();
 
-        p2_x = img_width as f32;
+        p2_x = img_width as f64;
         p2_y = rho.abs();
     } else if theta > 0.0 && theta < 90.0  {
         // start
         p1_x = 0.0;
-        p1_y = rho.abs() / deg2rad(theta).sin();
+        p1_y = rho.abs() / deg2rad(theta as u32, theta_axis_size).sin();
 
         // end
-        p2_x = rho.abs() / deg2rad(theta_remaining).sin();
+        p2_x = rho.abs() / deg2rad(theta_remaining as u32, theta_axis_size).sin();
         p2_y = 0.0;
     } else if theta > 90.0 && theta < 180.0 {
         // start
         if rho < 0.0 {
-            p1_x = rho.abs() / deg2rad(theta_reverse).sin();
+            p1_x = rho.abs() / deg2rad(theta_reverse as u32, theta_axis_size).sin();
         } else {
-            p1_x = rho.abs() * -1.0 / deg2rad(theta_reverse).sin();
+            p1_x = rho.abs() * -1.0 / deg2rad(theta_reverse as u32, theta_axis_size).sin();
         }
 
         p1_y = 0.0;
 
         // end
-        p2_x = img_width as f32;
+        p2_x = img_width as f64;
 
         if rho < 0.0 {
-            p2_y = (img_width as f32 - p1_x.abs()) * deg2rad(theta_reverse).sin() / deg2rad(theta_remaining as f32).sin();
+            p2_y = (img_width as f64 - p1_x.abs()) * deg2rad(theta_reverse as u32, theta_axis_size).sin() / deg2rad(theta_remaining as u32, theta_axis_size).sin();
         } else {
-            p2_y = (img_width as f32 + p1_x.abs()) * deg2rad(theta_reverse).sin() / deg2rad(theta_remaining as f32).sin();
+            p2_y = (img_width as f64 + p1_x.abs()) * deg2rad(theta_reverse as u32, theta_axis_size).sin() / deg2rad(theta_remaining as u32, theta_axis_size).sin();
         }
     }
 
@@ -282,43 +244,45 @@ fn test_line_from_rho_theta_special_cases() {
     let x = 50;
     let y = 40;
 
-    let line_coordinates = line_from_rho_theta(0, calculate_rho(0.0, x, y), img_width, img_height);
+    let theta_axis_size = 180;
+
+    let line_coordinates = line_from_rho_theta(0, theta_axis_size, calculate_rho(0.0, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((50, 90, 50, 0), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(30, calculate_rho(30.0, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(30, theta_axis_size, calculate_rho(30.0, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((0, 127, 73, 0), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(45, calculate_rho(45.0, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(45, theta_axis_size, calculate_rho(45.0, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((0, 90, 90, 0), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(90, calculate_rho(90.0, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(90, theta_axis_size, calculate_rho(90.0, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((0, 40, 100, 40), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(120, calculate_rho(120.0, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(120, theta_axis_size, calculate_rho(120.0, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((-19, 0, 100, 69), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(135, calculate_rho(135.0, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(135, theta_axis_size, calculate_rho(135.0, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((10, 0, 100, 90), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(180, calculate_rho(180.0, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(180, theta_axis_size, calculate_rho(180.0, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((50, 90, 50, 0), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(210, calculate_rho(210.0, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(210, theta_axis_size, calculate_rho(210.0, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((0, 127, 73, 0), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(225, calculate_rho(225.0, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(225, theta_axis_size, calculate_rho(225.0, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((0, 90, 90, 0), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(270, calculate_rho(270.0, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(270, theta_axis_size, calculate_rho(270.0, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((0, 40, 100, 40), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(300, calculate_rho(300.0, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(300, theta_axis_size, calculate_rho(300.0, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((19, 0, 100, 47), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(315, calculate_rho(315.0, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(315, theta_axis_size, calculate_rho(315.0, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((-10, 0, 100, 110), line_coordinates);
 
-    let line_coordinates = line_from_rho_theta(360, calculate_rho(360.0, x, y), img_width, img_height);
+    let line_coordinates = line_from_rho_theta(360, theta_axis_size, calculate_rho(360.0, theta_axis_size, x, y), img_width, img_height);
     assert_eq!((50, 90, 50, 0), line_coordinates);
 }
 
@@ -339,7 +303,7 @@ fn main() {
     // [X] make more functional, split init()
     // [X] more unit tests
     // [X] fix int overflow in line_from... function
-    // [X] use f32 and only when needed
+    // [X] use f64 everywhere, absolutely everywhere!
 
     let input_img_path = args[0].to_string();
     let houghspace_img_path = args[1].to_string();
@@ -366,21 +330,21 @@ fn clip_line_liang_barsky(
     let (edge_left, edge_right, edge_bottom, edge_top) = clipping_area;
     let (x0src, y0src, x1src, y1src) = line_coordinates;
 
-    let mut t0: f32 = 0.0;
-    let mut t1: f32 = 1.0;
+    let mut t0: f64 = 0.0;
+    let mut t1: f64 = 1.0;
 
-    let xdelta = (x1src as f32) - (x0src as f32);
-    let ydelta = (y1src as f32) - (y0src as f32);
+    let xdelta = (x1src as f64) - (x0src as f64);
+    let ydelta = (y1src as f64) - (y0src as f64);
 
-    let mut p = 0.0f32;
-    let mut q = 0.0f32;
-    let mut r = 0.0f32;
+    let mut p = 0.0f64;
+    let mut q = 0.0f64;
+    let mut r = 0.0f64;
 
     for edge in 0..4 {   // Traverse through left, right, bottom, top edges.
-        if edge == 0 {  p = -xdelta;    q = -((edge_left as f32) - (x0src as f32));   }
-        if edge == 1 {  p = xdelta;     q =  (edge_right as f32) - (x0src as f32);    }
-        if edge == 2 {  p = -ydelta;    q = -((edge_bottom as f32) - (y0src as f32)); }
-        if edge == 3 {  p = ydelta;     q =  (edge_top as f32) - (y0src as f32);      }
+        if edge == 0 {  p = -xdelta;    q = -((edge_left as f64) - (x0src as f64));   }
+        if edge == 1 {  p = xdelta;     q =  (edge_right as f64) - (x0src as f64);    }
+        if edge == 2 {  p = -ydelta;    q = -((edge_bottom as f64) - (y0src as f64)); }
+        if edge == 3 {  p = ydelta;     q =  (edge_top as f64) - (y0src as f64);      }
         r = q / p;
 
         if p == 0.0 && q < 0.0 {
@@ -389,29 +353,29 @@ fn clip_line_liang_barsky(
         }
 
         if p < 0.0 {
-            if r as f32 > t1 {
+            if r as f64 > t1 {
                 // Don't draw line at all.
                 return None;
-            } else if r as f32 > t0 {
+            } else if r as f64 > t0 {
                 // Line is clipped!
-                t0 = r as f32;
+                t0 = r as f64;
             }
         } else if p > 0.0 {
-            if (r as f32) < t0 {
+            if (r as f64) < t0 {
                 // Don't draw line at all.
                 return None;
             }
-            else if (r as f32) < t1 {
+            else if (r as f64) < t1 {
                 // Line is clipped!
-                t1 = r as f32;
+                t1 = r as f64;
             }
         }
     }
 
-    let x0clip = (x0src as f32) + (t0 as f32) * (xdelta as f32);
-    let y0clip = (y0src as f32) + (t0 as f32) * (ydelta as f32);
-    let x1clip = (x0src as f32) + (t1 as f32) * (xdelta as f32);
-    let y1clip = (y0src as f32) + (t1 as f32) * (ydelta as f32);
+    let x0clip = (x0src as f64) + (t0 as f64) * (xdelta as f64);
+    let y0clip = (y0src as f64) + (t0 as f64) * (ydelta as f64);
+    let x1clip = (x0src as f64) + (t1 as f64) * (xdelta as f64);
+    let y1clip = (y0src as f64) + (t1 as f64) * (ydelta as f64);
 
     Some((x0clip.round() as i32, y0clip.round() as i32, x1clip.round() as i32, y1clip.round() as i32))
 }
