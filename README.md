@@ -92,3 +92,4 @@ $ target/release/hough-transform  data/sample-pentagon.png  houghspace.png visua
 * More test cases could be added, currently some methods take an `Image` as argument, which makes them hard to test.
 * The style of this project could be a lot more functional.
 * Add travis build to stay up to date with new Rust versions and updated libraries.
+* The threshold for filtering the Hough Space could be defined automatically, like 70% of the maximum value in the accumulator. Filtering can also be improved, e. g. by finding local maxima.
