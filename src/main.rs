@@ -38,6 +38,14 @@ fn is_edge(img: &image::RgbImage, x: u32, y: u32) -> bool {
     i < 1
 }
 
+#[inline]
+fn calculate_rho(theta: u32, theta_axis_size: u32, x: u32, y: u32) -> f64 {
+    let sin = deg2rad(theta, theta_axis_size).sin();
+    let cos = deg2rad(theta, theta_axis_size).cos();
+
+    (x as f64) * cos + (y as f64) * sin
+}
+
 fn dump_houghspace(accumulator: &na::DMatrix<u32>, houghspace_img_path: &str) {
     let accu_clone = accumulator.clone().into_vector();
     let max_accumulator_value = *accu_clone.iter().max().unwrap();
@@ -149,13 +157,6 @@ fn hough_transform(img: &image::RgbImage, theta_axis_scale_factor: u32, rho_axis
     }
 
     accumulator
-}
-
-fn calculate_rho(theta: u32, theta_axis_size: u32, x: u32, y: u32) -> f64 {
-    let sin = deg2rad(theta, theta_axis_size).sin();
-    let cos = deg2rad(theta, theta_axis_size).cos();
-
-    (x as f64) * cos + (y as f64) * sin
 }
 
 #[test]
