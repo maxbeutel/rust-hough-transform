@@ -31,23 +31,6 @@ fn rgb_to_greyscale(r: u8, g: u8, b: u8) -> u8 {
     ((r as f64 + g as f64 + b as f64) / 3.0).round() as u8
 }
 
-#[inline]
-fn is_edge(img: &image::DynamicImage, x: u32, y: u32) -> bool {
-    let pixel = img.get_pixel(x, y);
-    let greyscale_value = rgb_to_greyscale(pixel.channels()[0],
-                                           pixel.channels()[1],
-                                           pixel.channels()[2]);
-    greyscale_value < 1
-}
-
-#[inline]
-fn calculate_rho(theta: u32, theta_axis_size: u32, x: u32, y: u32) -> f64 {
-    let sin = deg2rad(theta, theta_axis_size).sin();
-    let cos = deg2rad(theta, theta_axis_size).cos();
-
-    (x as f64) * cos + (y as f64) * sin
-}
-
 fn matrix_max<T: 'static>(matrix: &na::DMatrix<T>) -> Option<T>
     where T: std::cmp::Ord + na::core::Scalar
 {
@@ -119,7 +102,7 @@ fn dump_line_visualization(mut img: &mut image::DynamicImage,
 
     println!("# detected lines: {}", lines.len());
 
-    let white = Rgba([255u8, 255u8, 255u8, 255u8]);
+    let white = Rgba([255u8, 0u8, 0u8, 255u8]);
 
     for (_, line_coordinates) in lines {
         let clipped_line_coordinates =
@@ -139,45 +122,6 @@ fn dump_line_visualization(mut img: &mut image::DynamicImage,
 
     let mut buffer = File::create(line_visualization_img_path).unwrap();
     let _ = img.save(&mut buffer, image::PNG);
-}
-
-fn hough_transform(img: &image::DynamicImage,
-                   theta_axis_scale_factor: u32,
-                   rho_axis_scale_factor: u32)
-                   -> na::DMatrix<u32> {
-    let (img_width, img_height) = img.dimensions();
-
-    let max_line_length = calculate_max_line_length(img_width, img_height);
-
-    let theta_axis_size = theta_axis_scale_factor * 180;
-    let rho_axis_size = (max_line_length as u32) * rho_axis_scale_factor;
-
-    let mut accumulator: na::DMatrix<u32> =
-        na::DMatrix::from_element(theta_axis_size as usize, rho_axis_size as usize, 0);
-
-    for y in 0..img_height {
-        for x in 0..img_width {
-            if is_edge(&img, x, y) {
-                for theta in 0..theta_axis_size {
-                    let y_inverted = img_height - y - 1;
-
-                    let rho = calculate_rho(theta, theta_axis_size, x, y_inverted);
-                    let rho_scaled = scale_rho(rho, rho_axis_size, max_line_length);
-
-                    accumulator[(theta as usize, rho_scaled as usize)] += 1;
-                }
-            }
-        }
-    }
-
-    accumulator
-}
-
-
-
-fn scale_rho(rho: f64, rho_axis_size: u32, max_line_length: f64) -> u32 {
-    let rho_axis_half = (rho_axis_size as f64 / 2.0).round();
-    ((rho * rho_axis_half / max_line_length).round() + rho_axis_half as f64) as u32
 }
 
 fn line_from_rho_theta(theta: u32,
@@ -212,7 +156,7 @@ fn line_from_rho_theta(theta: u32,
 
         p2_x = img_width as f64;
         p2_y = rho.abs();
-    // otherwise use law of sines to get lines
+        // otherwise use law of sines to get lines
     } else if theta > 0.0 && theta < 90.0 {
         // start
         p1_x = 0.0;
@@ -235,13 +179,78 @@ fn line_from_rho_theta(theta: u32,
         p2_x = img_width as f64;
 
         if rho < 0.0 {
-            p2_y = (img_width as f64 - p1_x.abs()) * deg2rad(alpha as u32, theta_axis_size).sin() / deg2rad(beta as u32, theta_axis_size).sin();
+            p2_y = (img_width as f64 - p1_x.abs()) * deg2rad(alpha as u32, theta_axis_size).sin() /
+                   deg2rad(beta as u32, theta_axis_size).sin();
         } else {
-            p2_y = (img_width as f64 + p1_x.abs()) * deg2rad(alpha as u32, theta_axis_size).sin() / deg2rad(beta as u32, theta_axis_size).sin();
+            p2_y = (img_width as f64 + p1_x.abs()) * deg2rad(alpha as u32, theta_axis_size).sin() /
+                   deg2rad(beta as u32, theta_axis_size).sin();
         }
     }
 
     (p1_x.round() as i32, p1_y.round() as i32, p2_x.round() as i32, p2_y.round() as i32)
+}
+
+#[inline]
+fn scale_rho(rho: f64, rho_axis_size: u32, max_line_length: f64) -> u32 {
+    let rho_axis_half = (rho_axis_size as f64 / 2.0).round();
+    ((rho * rho_axis_half / max_line_length).round() + rho_axis_half as f64) as u32
+}
+
+#[inline]
+fn is_edge(pixel: &image::Rgba<u8>) -> bool {
+    let greyscale_value = rgb_to_greyscale(pixel.channels()[0],
+                                           pixel.channels()[1],
+                                           pixel.channels()[2]);
+
+    greyscale_value < 1
+}
+
+#[inline]
+fn invert_y(img_height: u32, coords: &(u32, u32)) -> (u32, u32) {
+    let &(x, y) = coords;
+    let y_inverted = img_height - y - 1;
+
+    (x, y_inverted)
+}
+
+#[inline]
+fn calculate_rho(theta: u32, theta_axis_size: u32, coords: &(u32, u32)) -> f64 {
+    let &(x, y) = coords;
+    let sin = deg2rad(theta, theta_axis_size).sin();
+    let cos = deg2rad(theta, theta_axis_size).cos();
+
+    (x as f64) * cos + (y as f64) * sin
+}
+
+fn hough_transform(img: &image::DynamicImage,
+                   theta_axis_scale_factor: u32,
+                   rho_axis_scale_factor: u32)
+                   -> na::DMatrix<u32> {
+    let max_line_length = calculate_max_line_length(img.width(), img.height());
+    let theta_axis_size = theta_axis_scale_factor * 180;
+    let rho_axis_size = (max_line_length as u32) * rho_axis_scale_factor;
+
+    let mut pixel_coords = (0..img.width())
+        .flat_map(|x| (0..img.height()).map(|y| (x, y)).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+
+    pixel_coords.sort_by_key(|&(x, y)| (!y, x));
+
+    pixel_coords.iter()
+        .filter(|&&(x, y)| is_edge(&img.get_pixel(x, y)))
+        .map(|&coords| invert_y(img.height(), &coords))
+        .flat_map(|coords| {
+            (0..theta_axis_size)
+                .map(|theta| (theta, calculate_rho(theta, theta_axis_size, &coords)))
+                .collect::<Vec<_>>()
+        })
+        .fold(na::DMatrix::from_element(theta_axis_size as usize, rho_axis_size as usize, 0),
+              |mut accu, (theta, rho)| {
+                  let rho_scaled = scale_rho(rho, rho_axis_size, max_line_length);
+
+                  accu[(theta as usize, rho_scaled as usize)] += 1;
+                  accu
+              })
 }
 
 fn main() {
@@ -267,12 +276,13 @@ fn main() {
         .expect("ERROR 'houghspace_filter_threshold' argument not a number.");
 
     let mut img = image::open(&Path::new(&input_img_path)).expect("ERROR: input file not found.");
-    // let mut accumulator: na::DMatrix<u32> = na::DMatrix::from_element(0, 0, 0);
-    let accumulator = hough_transform(&mut img, theta_axis_scale_factor, rho_axis_scale_factor);
 
-    dump_houghspace(&accumulator, &houghspace_img_path);
+    let accu = hough_transform(&img, theta_axis_scale_factor, rho_axis_scale_factor);
+
+    dump_houghspace(&accu, &houghspace_img_path);
+
     dump_line_visualization(&mut img,
-                            &accumulator,
+                            &accu,
                             theta_axis_scale_factor,
                             houghspace_filter_threshold,
                             &line_visualization_img_path);
@@ -423,13 +433,14 @@ mod test {
     #[test]
     fn test_calculate_rho() {
         let theta_axis_size = 180;
+        let coords = (50, 40);
 
-        assert_eq!(50.0, calculate_rho(0, theta_axis_size, 50, 40).round());
-        assert_eq!(64.0, calculate_rho(45, theta_axis_size, 50, 40).round());
-        assert_eq!(40.0, calculate_rho(90, theta_axis_size, 50, 40).round());
-        assert_eq!(-50.0, calculate_rho(180, theta_axis_size, 50, 40).round());
-        assert_eq!(-40.0, calculate_rho(270, theta_axis_size, 50, 40).round());
-        assert_eq!(-7.0, calculate_rho(135, theta_axis_size, 50, 40).round());
+        assert_eq!(50.0, calculate_rho(0, theta_axis_size, &coords).round());
+        assert_eq!(64.0, calculate_rho(45, theta_axis_size, &coords).round());
+        assert_eq!(40.0, calculate_rho(90, theta_axis_size, &coords).round());
+        assert_eq!(-50.0, calculate_rho(180, theta_axis_size, &coords).round());
+        assert_eq!(-40.0, calculate_rho(270, theta_axis_size, &coords).round());
+        assert_eq!(-7.0, calculate_rho(135, theta_axis_size, &coords).round());
     }
 
     #[test]
@@ -437,15 +448,14 @@ mod test {
         let img_width = 100;
         let img_height = 90;
 
-        let x = 50;
-        let y = 40;
+        let coords = (50, 40);
 
         let theta_axis_size = 180;
         let theta_axis_scale_factor = 1;
 
         let line_coordinates = line_from_rho_theta(0,
                                                    theta_axis_scale_factor,
-                                                   calculate_rho(0, theta_axis_size, x, y),
+                                                   calculate_rho(0, theta_axis_size, &coords),
                                                    img_width,
                                                    img_height);
 
@@ -453,7 +463,7 @@ mod test {
 
         let line_coordinates = line_from_rho_theta(30,
                                                    theta_axis_scale_factor,
-                                                   calculate_rho(30, theta_axis_size, x, y),
+                                                   calculate_rho(30, theta_axis_size, &coords),
                                                    img_width,
                                                    img_height);
 
@@ -461,7 +471,7 @@ mod test {
 
         let line_coordinates = line_from_rho_theta(45,
                                                    theta_axis_scale_factor,
-                                                   calculate_rho(45, theta_axis_size, x, y),
+                                                   calculate_rho(45, theta_axis_size, &coords),
                                                    img_width,
                                                    img_height);
 
@@ -469,7 +479,7 @@ mod test {
 
         let line_coordinates = line_from_rho_theta(90,
                                                    theta_axis_scale_factor,
-                                                   calculate_rho(90, theta_axis_size, x, y),
+                                                   calculate_rho(90, theta_axis_size, &coords),
                                                    img_width,
                                                    img_height);
 
@@ -477,7 +487,7 @@ mod test {
 
         let line_coordinates = line_from_rho_theta(120,
                                                    theta_axis_scale_factor,
-                                                   calculate_rho(120, theta_axis_size, x, y),
+                                                   calculate_rho(120, theta_axis_size, &coords),
                                                    img_width,
                                                    img_height);
 
@@ -485,7 +495,7 @@ mod test {
 
         let line_coordinates = line_from_rho_theta(135,
                                                    theta_axis_scale_factor,
-                                                   calculate_rho(135, theta_axis_size, x, y),
+                                                   calculate_rho(135, theta_axis_size, &coords),
                                                    img_width,
                                                    img_height);
 
@@ -493,7 +503,7 @@ mod test {
 
         let line_coordinates = line_from_rho_theta(180,
                                                    theta_axis_scale_factor,
-                                                   calculate_rho(180, theta_axis_size, x, y),
+                                                   calculate_rho(180, theta_axis_size, &coords),
                                                    img_width,
                                                    img_height);
 
@@ -505,7 +515,7 @@ mod test {
 
         let line_coordinates = line_from_rho_theta(180,
                                                    theta_axis_scale_factor,
-                                                   calculate_rho(180, theta_axis_size, x, y),
+                                                   calculate_rho(180, theta_axis_size, &coords),
                                                    img_width,
                                                    img_height);
 

@@ -64,7 +64,7 @@ $ target/release/hough-transform data/sample-square-rotated45.png houghspace.png
 ![Rectangle result](https://raw.githubusercontent.com/maxbeutel/rust-hough-transform/master/data/lines-rectangle.png "Rectangle result")
 
 ```
-$ target/release/hough-transform data/sample-rectangle.png  houghspace.png visualization.png 1 8 300
+$ target/release/hough-transform data/sample-rectangle.png houghspace.png visualization.png 1 8 300
 
 # max accumulator value: 518
 # detected lines: 44
@@ -76,7 +76,7 @@ $ target/release/hough-transform data/sample-rectangle.png  houghspace.png visua
 ![Pentagon result](https://raw.githubusercontent.com/maxbeutel/rust-hough-transform/master/data/lines-pentagon.png "Pentagon result")
 
 ```
-$ target/release/hough-transform  data/sample-pentagon.png  houghspace.png visualization.png 16 16 15
+$ target/release/hough-transform data/sample-pentagon.png houghspace.png visualization.png 16 16 15
 
 # max accumulator value: 27
 # detected lines: 105
