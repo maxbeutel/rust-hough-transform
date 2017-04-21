@@ -10,7 +10,7 @@ Unlike most examples I found on the web this implementation not only *dumps a vi
 This project requires a working Rust compiler. The easiest way to get Rust installed is probably using [Rustup](https://www.rustup.rs/).
 
 ```
-$ git clone git@github.com:maxbeutel/rust-hough-transform.git
+$ git clone https://github.com/maxbeutel/rust-hough-transform.git
 $ cd rust-hough-transform
 $ cargo build --release
 ```
