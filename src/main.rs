@@ -7,11 +7,10 @@ use std::env;
 use std::process;
 use std::io;
 use std::f64;
-use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 
-use image::{ImageBuffer, Pixel, Rgba, GenericImage};
+use image::{GenericImageView, ImageBuffer, Pixel, Rgba};
 use imageproc::drawing::draw_line_segment_mut;
 
 #[inline]
@@ -32,12 +31,15 @@ fn rgb_to_greyscale(r: u8, g: u8, b: u8) -> u8 {
 }
 
 fn matrix_max<T: 'static>(matrix: &na::DMatrix<T>) -> Option<T>
-    where T: std::cmp::Ord + na::core::Scalar
+where
+    T: std::cmp::PartialEq
+        + std::marker::Copy
+        + std::fmt::Debug
+        + num_traits::Zero
+        + simba::simd::SimdValue<Element = T, SimdBool = bool>
+        + std::cmp::PartialOrd,
 {
-    matrix.data
-        .iter()
-        .max()
-        .map(|m| *m)
+    Some(matrix.max())
 }
 
 fn dump_houghspace(accumulator: &na::DMatrix<u32>, houghspace_img_path: &str) {
@@ -62,15 +64,16 @@ fn dump_houghspace(accumulator: &na::DMatrix<u32>, houghspace_img_path: &str) {
         }
     }
 
-    let ref mut fout = File::create(houghspace_img_path).unwrap();
-    let _ = image::ImageRgb8(out).save(fout, image::PNG);
+    let _ = image::DynamicImage::ImageRgb8(out).save(houghspace_img_path);
 }
 
-fn dump_line_visualization(mut img: &mut image::DynamicImage,
-                           accumulator: &na::DMatrix<u32>,
-                           theta_axis_scale_factor: u32,
-                           houghspace_filter_threshold: u32,
-                           line_visualization_img_path: &str) {
+fn dump_line_visualization(
+    img: &mut image::DynamicImage,
+    accumulator: &na::DMatrix<u32>,
+    theta_axis_scale_factor: u32,
+    houghspace_filter_threshold: u32,
+    line_visualization_img_path: &str,
+) {
     let (img_width, img_height) = img.dimensions();
 
     let theta_axis_size = accumulator.nrows();
@@ -120,8 +123,7 @@ fn dump_line_visualization(mut img: &mut image::DynamicImage,
                               white);
     }
 
-    let mut buffer = File::create(line_visualization_img_path).unwrap();
-    let _ = img.save(&mut buffer, image::PNG);
+    let _ = img.save(line_visualization_img_path);
 }
 
 fn line_from_rho_theta(theta: u32,
